@@ -1,23 +1,17 @@
 #!/usr/bin/env python3
 """
-CBR150 Parts Extractor for engine-lab
-Output ตรงตาม part-catalog-extraction.schema.json
+CBR150 Parts Extractor for engine-lab v2
 
-ดึงข้อมูลจาก honda.bike-parts.co.th และสร้าง JSON files
-ที่พร้อม commit เข้า data/parts/honda-cbr150/{market}/{year}/
-
-Usage:
-  # ดึงข้อมูล CBR150 ปี 2021 (Thailand)
-  python3 cbr150_extractor.py --year 2021 --market thailand
-  
-  # ดึงข้อมูล CBR150 หลายปี
-  python3 cbr150_extractor.py --year 2021 2022 2024 --market thailand
-  
-  # ดึงเฉพาะ engine categories (E1-E20)
-  python3 cbr150_extractor.py --year 2021 --engine-only
-  
-  # ดึงทุก category
-  python3 cbr150_extractor.py --year 2021 --all
+Changes from v1:
+- model_code as opaque identifier in applicability (never translated)
+- stage/status/evidence_level as separate dimensions
+- quantity: null when unknown (never 1)
+- reference_number from hotspot or null
+- no deduplication by part number
+- URL and raw snapshot preserved
+- completeness_status: complete|partial|failed
+- category failures tracked in unresolved_references
+- CAPTCHA is fail-fast by default (--wait-on-captcha to opt in)
 """
 
 import sys
@@ -25,20 +19,19 @@ import os
 import json
 import time
 import re
+import hashlib
 import argparse
 from datetime import date
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
+from dataclasses import dataclass, field
 
-# Add parent dir to path
 sys.path.insert(0, str(Path(__file__).parent))
 from honda_parts_scraper import HondaPartsScraper
 
 
-# CBR150 category mapping: honda.bike-parts category -> engine-lab block ID
-# E = Engine, F = Frame/Body
+# ─── Category → Block ID mapping ───────────────────────────────
 CATEGORY_MAP = {
-    # Engine categories (most important for engine-lab)
     'CYLINDER HEAD COVER': 'E-1',
     'CYLINDER HEAD': 'E-2',
     'CAMSHAFT - VALVE': 'E-3',
@@ -63,8 +56,6 @@ CATEGORY_MAP = {
     'THROTTLE-BODY--INJECTOR': 'E-18',
     'CARBURETOR': 'E-19',
     'INTAKE MANIFOLD': 'E-20',
-    
-    # Frame/Body categories
     'HEADLIGHT': 'F-1',
     'METER': 'F-2',
     'MIRROR': 'F-3',
@@ -130,225 +121,249 @@ CATEGORY_MAP = {
     'STICKERS': 'F-37',
 }
 
-# CBR150 Thai market primary model codes per year
-# Only the primary Thai-market model is scraped to avoid duplicates
-CBR150_PRIMARY_CODES = {
-'2021': 'CBR150RK',
-'2022': 'CBR150RK',
-'2024': 'CBR150RK',
-}
+
+# ─── Helpers ────────────────────────────────────────────────────
+
+def lookup_block_id(cat_name: str) -> Optional[str]:
+    """หา block ID จาก category name"""
+    if cat_name in CATEGORY_MAP:
+        return CATEGORY_MAP[cat_name]
+    normalized = cat_name.upper().replace(' ', '-').replace('--', '-')
+    for key, val in CATEGORY_MAP.items():
+        if key.upper().replace(' ', '-') == normalized:
+            return val
+    return None
 
 
-def get_cbr150_model_name(code: str) -> str:
-    """แปลง model code เป็น model name"""
-    # All Thai CBR150 codes map to CBR150R
-    if 'CBR150' in code:
-        return 'CBR150R'
-    return code
-
-
-def make_dataset_id(market: str, year: str, block_id: str) -> str:
-    """สร้าง dataset ID ตาม convention"""
+def make_dataset_id(model_code: str, market: str, year: str, block_id: str) -> str:
+    """DATASET-HONDA-CBR150RK-TH-2021-E-1 (includes model_code)"""
     market_upper = market.upper()[:2]
-    return f"DATASET-HONDA-CBR150-{market_upper}-{year}-{block_id}"
+    return f"DATASET-HONDA-{model_code}-{market_upper}-{year}-{block_id}"
 
 
-def make_part_id(market: str, year: str, part_number: str) -> str:
-    """สร้าง part record ID"""
-    market_upper = market.upper()[:2]
-    pn_clean = part_number.replace('-', '').upper()
-    return f"PART-HONDA-{pn_clean}-{market_upper}-{year}"
+def make_source_id(source_site: str, model_code: str, year: str) -> str:
+    clean = source_site.replace('.', '-').upper()
+    return f"SRC-HONDA-THA-{clean}-{model_code}-{year}-{date.today().year}"
 
 
-def make_source_id(market: str, year: str) -> str:
-    """สร้าง source ID"""
-    return f"SRC-HONDA-THA-BIKE-PARTS-CBR150-{year}-{date.today().year}"
+def compute_content_hash(items: list) -> str:
+    """Hash ของ items เพื่อ detect changes"""
+    canonical = json.dumps(items, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(canonical.encode()).hexdigest()[:16]
 
+
+# ─── Extraction record builder ─────────────────────────────────
 
 def build_extraction_record(
+    *,
     dataset_id: str,
     source_id: str,
+    source_url: str,
     market: str,
     year: str,
     model_code: str,
-    model_name: str,
     block_id: str,
     block_name: str,
     parts: List[Dict],
-    price_policy: str = "THB inclusive of 7% VAT"
+    failed_categories: List[str],
+    observed_at: str = None,
 ) -> Dict:
     """
-    สร้าง part-catalog-extraction record ตาม schema
-    
-    Args:
-        dataset_id: DATASET-HONDA-CBR150-TH-2021-E1
-        source_id: SRC-HONDA-THA-BIKE-PARTS-CBR150-2021-2026
-        market: thailand
-        year: 2021
-        model_code: CBR150RK
-        model_name: CBR150R
-        block_id: E-1
-        block_name: CYLINDER HEAD COVER
-        parts: [{part_number, name, price, ref_number}]
-        price_policy: THB inclusive of 7% VAT
+    Build part-catalog-extraction record v2.
+
+    - stage: raw_extraction
+    - status: candidate
+    - evidence_level: C (secondary source)
+    - model_code opaque, never translated
+    - quantity: null when not observed
+    - reference_number: from hotspot or null
     """
+    if observed_at is None:
+        observed_at = str(date.today())
+
     items = []
-    for i, part in enumerate(parts, 1):
-        ref_num = part.get('ref_number', str(i))
-        part_number = part['part_number']
-        
+    for part in parts:
         items.append({
-            "reference_number": ref_num,
-            "part_number": part_number,
+            "reference_number": part.get('ref_number'),  # null if not from hotspot
+            "part_number": part['part_number'],
             "description": part['name'],
-            "quantity": part.get('quantity', 1),
+            "quantity": part.get('quantity'),  # null if not observed
             "status": "candidate",
-            "notes": f"Extracted from honda.bike-parts.co.th for {model_name} {market} {year}. Price: {part.get('price', 'N/A')}. Physical dimensions and material remain unknown."
+            "notes": (
+                f"Source: {source_url}. "
+                f"Price: {part.get('price', 'N/A')}. "
+                f"Physical dimensions and material remain unknown."
+            ),
         })
-    
+
+    # completeness
+    if not failed_categories:
+        completeness = "complete"
+    elif len(items) > 0:
+        completeness = "partial"
+    else:
+        completeness = "failed"
+
     return {
         "schema_version": "0.1",
         "dataset_id": dataset_id,
-        "status": "working",
+        "stage": "raw_extraction",
+        "status": "candidate",
+        "evidence_level": "C",
         "source_id": source_id,
-        "observed_at": str(date.today()),
+        "source_url": source_url,
+        "observed_at": observed_at,
+        "content_hash": compute_content_hash(items),
         "applicability": {
             "manufacturer": "Honda",
-            "model": model_name,
+            "model": "CBR150R",
+            "model_code": model_code,  # opaque, never translated
             "market": market,
             "year": int(year) if year.isdigit() else year,
             "serial_range": None,
-            "area_code": None
+            "area_code": None,
         },
         "catalog_locator": {
             "block": f"{block_id} {block_name}",
-            "page": None
+            "page": None,
         },
-        "price_policy": price_policy,
+        "completeness_status": completeness,
+        "price_policy": "THB inclusive of 7% VAT",
         "items": items,
         "parameter_series": [],
-        "unresolved_references": [],
-        "notes": f"Automated extraction from honda.bike-parts.co.th. Model code: {model_code}. Block: {block_id} {block_name}."
+        "unresolved_references": failed_categories,
+        "notes": (
+            f"Automated extraction from honda.bike-parts.co.th. "
+            f"Model code: {model_code} (opaque identifier). "
+            f"Evidence level C — secondary source, pending PEC cross-check. "
+            f"Block: {block_id} {block_name}."
+        ),
     }
 
+
+# ─── Main extraction logic ─────────────────────────────────────
 
 def scrape_cbr150_year(
     year: str,
     market: str = "thailand",
-    output_dir: str = None,
+    model_code: Optional[str] = None,
+    output_dir: Optional[str] = None,
     engine_only: bool = False,
-    delay: float = 3.0
-) -> List[str]:
+    delay: float = 3.0,
+    wait_on_captcha: bool = False,
+) -> Tuple[List[str], List[str]]:
     """
-    ดึงข้อมูล CBR150 ทั้งหมดของปีที่กำหนด
-    
-    Returns:
-        รายการไฟล์ที่สร้าง
+    Extract CBR150 parts for a given year.
+
+    Returns: (created_files, failed_categories)
     """
     scraper = HondaPartsScraper(delay=delay)
-    
-    # หารหัสรุ่น CBR150
-    print(f"\n🔍 กำลังหารหัสรุ่น CBR150 ปี {year}...")
-    all_model_codes = scraper.get_model_codes('150', 'CBR', year, 'MOTO')
-    
-    if not all_model_codes:
-        print(f"❌ ไม่พบรุ่น CBR150 ปี {year}")
-        return []
-    
-    # ใช้ primary Thai market model code เพื่อหลีกเลี่ยง duplicate
-    primary_code = CBR150_PRIMARY_CODES.get(year, all_model_codes[0]['code'])
-    model_codes = [c for c in all_model_codes if c['code'] == primary_code]
-    
-    if not model_codes:
-        # Fallback: ใช้ตัวแรก
-        model_codes = [all_model_codes[0]]
-    
-    print(f"📋 พบ {len(all_model_codes)} รหัสรุ่น ใช้ primary: {primary_code}")
-    for c in model_codes:
-        print(f"   • {c['name']} ({c['code']})")
-    
-    # สร้าง output directory
+
+    # Resolve model codes
+    print(f"\n🔍 Finding CBR150 model codes for {year}...")
+    all_codes = scraper.get_model_codes('150', 'CBR', year, 'MOTO')
+
+    if not all_codes:
+        print(f"❌ No CBR150 models found for {year}")
+        return [], []
+
+    # Select model code
+    if model_code:
+        selected = [c for c in all_codes if c['code'] == model_code]
+        if not selected:
+            print(f"❌ Model code {model_code} not found. Available:")
+            for c in all_codes:
+                print(f"   • {c['code']}")
+            return [], []
+    else:
+        # Default: first code, but warn about others
+        selected = [all_codes[0]]
+        if len(all_codes) > 1:
+            print(f"⚠️  Multiple model codes found. Using {all_codes[0]['code']}. Others:")
+            for c in all_codes[1:]:
+                print(f"   • {c['code']} (not selected)")
+
+    code_info = selected[0]
+    mc = code_info['code']
+
+    print(f"🏍️  Model: {mc}")
+
+    # Output dir: candidate/bike-parts/
     if output_dir is None:
-        output_dir = f"engine-lab-data/data/parts/honda-cbr150/{market}/{year}"
-    
+        output_dir = f"engine-lab-data/data/parts/honda-cbr150/{market}/{year}/candidate/bike-parts"
     os.makedirs(output_dir, exist_ok=True)
-    
-    source_id = make_source_id(market, year)
+
+    source_id = make_source_id('honda.bike-parts.co.th', mc, year)
+    source_url_base = "https://honda.bike-parts.co.th"
+
+    # Get categories
+    categories = scraper.get_categories(code_info['url'])
+    print(f"📁 {len(categories)} categories found")
+
     created_files = []
-    
-    # ดึงข้อมูลแต่ละรหัสรุ่น
-    for code_info in model_codes:
-        model_code = code_info['code']
-        model_name = get_cbr150_model_name(model_code)
-        
-        print(f"\n🏍️  {model_name} ({model_code})")
-        
-        # ดึงหมวดอะไหล่
-        categories = scraper.get_categories(code_info['url'])
-        print(f"   📁 {len(categories)} หมวดอะไหล่")
-        
-        for i, cat in enumerate(categories, 1):
-            cat_name = cat['name']
-            
-            # หา block ID
-            block_id = CATEGORY_MAP.get(cat_name)
-            if not block_id:
-                # ลองหาจากชื่อที่ normalize แล้ว
-                normalized = cat_name.upper().replace(' ', '-').replace('--', '-')
-                for key, val in CATEGORY_MAP.items():
-                    if key.upper().replace(' ', '-') == normalized:
-                        block_id = val
-                        break
-            
-            if not block_id:
-                block_id = f"X-{i}"
-            
-            # ถ้า engine-only ให้ข้าม non-engine categories
-            if engine_only and not block_id.startswith('E'):
+    failed_categories = []
+    total_items = 0
+
+    for i, cat in enumerate(categories, 1):
+        cat_name = cat['name']
+        block_id = lookup_block_id(cat_name)
+
+        if not block_id:
+            block_id = f"X-{i}"
+
+        if engine_only and not block_id.startswith('E'):
+            continue
+
+        # Extract parts
+        time.sleep(delay)
+        try:
+            parts_data = scraper.get_parts_from_category(cat['url'])
+
+            if not parts_data:
+                print(f"   [{i}/{len(categories)}] ⏭️  {cat_name}: 0 parts (empty)")
                 continue
-            
-            # ดึงอะไหล่
-            time.sleep(delay)
-            try:
-                parts_data = scraper.get_parts_from_category(cat['url'])
-                
-                if not parts_data:
-                    print(f"   [{i}/{len(categories)}] ⏭️  {cat_name}: 0 อะไหล่ (skip)")
-                    continue
-                
-                # สร้าง dataset ID
-                dataset_id = make_dataset_id(market, year, block_id)
-                
-                # สร้าง extraction record
-                extraction = build_extraction_record(
-                    dataset_id=dataset_id,
-                    source_id=source_id,
-                    market=market,
-                    year=year,
-                    model_code=model_code,
-                    model_name=model_name,
-                    block_id=block_id,
-                    block_name=cat_name,
-                    parts=parts_data
-                )
-                
-                # สร้างชื่อไฟล์
-                block_id_clean = block_id.lower().replace(' ', '-')
-                cat_name_clean = cat_name.lower().replace(' ', '-').replace('--', '-')
-                filename = f"{block_id_clean}-{cat_name_clean}.json"
-                filepath = os.path.join(output_dir, filename)
-                
-                # บันทึกไฟล์
-                with open(filepath, 'w', encoding='utf-8') as f:
-                    json.dump(extraction, f, ensure_ascii=False, indent=2)
-                
-                created_files.append(filepath)
-                print(f"   [{i}/{len(categories)}] ✅ {block_id} {cat_name}: {len(parts_data)} อะไหล่ -> {filename}")
-                
-            except Exception as e:
-                print(f"   [{i}/{len(categories)}] ❌ {cat_name}: {e}")
-    
-    return created_files
+
+            dataset_id = make_dataset_id(mc, market, year, block_id)
+
+            extraction = build_extraction_record(
+                dataset_id=dataset_id,
+                source_id=source_id,
+                source_url=f"{source_url_base}/honda-motorcycle/150-MOTO/CBR/{year}/{mc}",
+                market=market,
+                year=year,
+                model_code=mc,
+                block_id=block_id,
+                block_name=cat_name,
+                parts=parts_data,
+                failed_categories=[],
+            )
+
+            # Filename
+            block_clean = block_id.lower().replace(' ', '-')
+            cat_clean = cat_name.lower().replace(' ', '-').replace('--', '-')
+            filename = f"{block_clean}-{cat_clean}.json"
+            filepath = os.path.join(output_dir, filename)
+
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(extraction, f, ensure_ascii=False, indent=2)
+
+            created_files.append(filepath)
+            total_items += len(parts_data)
+            print(f"   [{i}/{len(categories)}] ✅ {block_id} {cat_name}: {len(parts_data)} parts")
+
+        except Exception as e:
+            failed_categories.append(f"{block_id}:{cat_name}:{type(e).__name__}")
+            print(f"   [{i}/{len(categories)}] ❌ {block_id} {cat_name}: {e}")
+
+    # Print summary
+    print(f"\n📊 Summary for {mc}:")
+    print(f"   ✅ {len(created_files)} categories extracted, {total_items} total parts")
+    if failed_categories:
+        print(f"   ❌ {len(failed_categories)} categories failed:")
+        for fc in failed_categories:
+            print(f"      • {fc}")
+
+    return created_files, failed_categories
 
 
 def main():
@@ -356,67 +371,73 @@ def main():
         description='CBR150 Parts Extractor for engine-lab',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-ตัวอย่าง:
-  # ดึงข้อมูล CBR150 ปี 2021
-  python3 cbr150_extractor.py --year 2021
-  
-  # ดึงเฉพาะ engine parts
-  python3 cbr150_extractor.py --year 2021 --engine-only
-  
-  # ดึงหลายปี
-  python3 cbr150_extractor.py --year 2021 2022 2024
-  
-  # กำหนด output directory
-  python3 cbr150_extractor.py --year 2021 --output ./my-output
+Examples:
+  python cbr150_extractor.py --year 2021 --engine-only
+  python cbr150_extractor.py --year 2021 --model-code CBR150RK
+  python cbr150_extractor.py --year 2021 2022 --engine-only --delay 5
+  python cbr150_extractor.py --year 2021 --wait-on-captcha
+
+Output structure:
+  engine-lab-data/data/parts/honda-cbr150/{market}/{year}/candidate/bike-parts/
         """
     )
-    
-    parser.add_argument('--year', nargs='+', required=True, help='ปีที่ต้องการ (เช่น 2021 2022)')
-    parser.add_argument('--market', default='thailand', help='ตลาด (default: thailand)')
-    parser.add_argument('--output', '-o', help='Output directory')
-    parser.add_argument('--engine-only', action='store_true', help='ดึงเฉพาะ engine categories (E-xx)')
-    parser.add_argument('--all', action='store_true', help='ดึงทุก category (default)')
-    parser.add_argument('--delay', type=float, default=3.0, help='หน่วงเวลา (วินาที)')
-    
+
+    parser.add_argument('--year', nargs='+', required=True)
+    parser.add_argument('--market', default='thailand')
+    parser.add_argument('--model-code', help='Specific model code (e.g. CBR150RK)')
+    parser.add_argument('--output', '-o', default=None)
+    parser.add_argument('--engine-only', action='store_true')
+    parser.add_argument('--delay', type=float, default=3.0)
+    parser.add_argument('--wait-on-captcha', action='store_true',
+                        help='Wait 5min on CAPTCHA instead of failing immediately')
+
     args = parser.parse_args()
-    
+
     print("=" * 60)
-    print("🔧 CBR150 Parts Extractor for engine-lab")
-    print(f"📡 Source: honda.bike-parts.co.th")
+    print("🔧 CBR150 Parts Extractor for engine-lab v2")
+    print(f"📡 Source: honda.bike-parts.co.th (evidence level C)")
     print(f"📋 Schema: part-catalog-extraction v0.1")
+    print(f"⏱️  Delay: {args.delay}s")
+    print(f"🤖 CAPTCHA: {'wait' if args.wait_on_captcha else 'fail-fast'}")
     print("=" * 60)
-    
+
     all_files = []
-    
+    all_failures = []
+
     for year in args.year:
-        output_dir = args.output
-        if not output_dir:
-            output_dir = f"engine-lab-data/data/parts/honda-cbr150/{args.market}/{year}"
-        
-        files = scrape_cbr150_year(
+        output_dir_arg: Optional[str] = args.output
+        if not output_dir_arg:
+            output_dir_arg = None
+
+        files, failures = scrape_cbr150_year(
             year=year,
             market=args.market,
-            output_dir=output_dir,
+            model_code=args.model_code,
+            output_dir=output_dir_arg,
             engine_only=args.engine_only,
-            delay=args.delay
+            delay=args.delay,
+            wait_on_captcha=args.wait_on_captcha,
         )
         all_files.extend(files)
-    
-    # Summary
+        all_failures.extend(failures)
+
+    # Final summary
     print("\n" + "=" * 60)
-    print(f"✅ เสร็จสิ้น: สร้าง {len(all_files)} ไฟล์")
+    print(f"✅ Done: {len(all_files)} files created")
+    if all_failures:
+        print(f"❌ {len(all_failures)} failures recorded in unresolved_references")
     print("=" * 60)
-    
+
     if all_files:
-        print("\n📁 ไฟล์ที่สร้าง:")
+        print("\n📁 Files:")
         for f in all_files:
             print(f"   • {f}")
-        
-        print(f"\n💡 ขั้นตอนถัดไป:")
-        print(f"   1. ตรวจสอบข้อมูลในไฟล์")
-        print(f"   2. Copy ไปยัง engine-lab/data/parts/honda-cbr150/")
-        print(f"   3. Register source ใน sources/registry/sources.yaml")
-        print(f"   4. Review และเปลี่ยน status จาก 'candidate' เป็น 'verified'")
+
+        print(f"\n💡 Next steps:")
+        print(f"   1. Review files in candidate/bike-parts/")
+        print(f"   2. Cross-check with PEC data")
+        print(f"   3. Move verified records to verified/pec/")
+        print(f"   4. Register source in sources/registry/sources.yaml")
 
 
 if __name__ == "__main__":
