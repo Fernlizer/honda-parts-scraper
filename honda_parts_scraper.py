@@ -321,38 +321,50 @@ class HondaPartsScraper:
     def get_parts_from_category(self, category_url: str) -> List[Dict]:
         """
         ดึงรายการอะไหล่จากหมวด
-        ใช้ Schema.org Microdata (itemtype=Product)
+        
+        Extracts:
+        - part_number, name, price: from Schema.org Microdata
+        - ref_number: from span.ref-libelle (diagram reference)
+        - quantity: null (only available in JS-rendered exploded diagram)
+        
+        No deduplication — same part in multiple positions is preserved.
         """
         r = self._get_with_retry(category_url)
         soup = BeautifulSoup(r.text, 'html.parser')
         parts = []
-        seen_mpn = set()
         
-        for product in soup.find_all(itemtype='http://schema.org/Product'):
-            name_elem = product.find(itemprop='name')
-            mpn_elem = product.find(itemprop='mpn')
-            price_elem = product.find(itemprop='price')
-            
-            name = name_elem.get_text(strip=True) if name_elem else ''
-            mpn = mpn_elem.get_text(strip=True) if mpn_elem else ''
-            price = price_elem.get_text(strip=True) if price_elem else ''
-            
-            if mpn and mpn not in seen_mpn:
-                seen_mpn.add(mpn)
+        # Find all card-body containers (each contains one or more products)
+        for card in soup.find_all('div', id='card-body'):
+            # Each card may have multiple products
+            for product in card.find_all(itemtype='http://schema.org/Product'):
+                name_elem = product.find(itemprop='name')
+                mpn_elem = product.find(itemprop='mpn')
+                price_elem = product.find(itemprop='price')
                 
-                # หา part number ที่มีขีด
+                name = name_elem.get_text(strip=True) if name_elem else ''
+                mpn = mpn_elem.get_text(strip=True) if mpn_elem else ''
+                price = price_elem.get_text(strip=True) if price_elem else ''
+                
+                if not mpn:
+                    continue
+                
+                # Extract reference number from span.ref-libelle
+                ref_span = product.find('span', class_='ref-libelle')
+                ref_number = ref_span.get_text(strip=True) if ref_span else None
+                
+                # Find part number with dashes
                 part_number = mpn
-                for span in product.find_all('span'):
-                    text = span.get_text(strip=True)
-                    if '-' in text and mpn.replace('-', '') in text.replace('-', ''):
-                        part_number = text
-                        break
+                ref_link = product.find('span', class_='JS_ref_link')
+                if ref_link:
+                    part_number = ref_link.get_text(strip=True)
                 
                 parts.append({
                     'part_number': part_number,
                     'part_number_raw': mpn,
                     'name': name,
                     'price': price,
+                    'ref_number': ref_number,
+                    'quantity': None,  # Not available in static HTML
                 })
         
         return parts
