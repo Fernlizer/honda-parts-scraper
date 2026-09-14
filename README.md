@@ -6,10 +6,10 @@
 
 ## ทำไมต้อง tool นี้?
 
-- **PEC (pec.thaihonda.co.th)** ต้อง dealer login, ไม่มี public API
-- **honda.bike-parts.co.th** เป็นสาธารณะ มีข้อมูลครบ ทุกรุ่น ทุกปี
+- **PEC (pec.thaihonda.co.th)** เป็น official dynamic catalog ที่ automation และการอ้าง deep link ทำได้ยาก
+- **honda.bike-parts.co.th** เป็นแหล่งสาธารณะสำหรับ candidate extraction แต่ไม่รับประกัน coverage ทุก model/year
 - Manual copy ใช้เวลานาน — tool นี้ดึงให้อัตโนมัติ
-- Output ตรงตาม [engine-lab data schema](https://github.com/Fernlizer/engine-lab/blob/main/specs/data-schema.md) v0.1
+- Output ตรงตาม [engine-lab data schema](https://github.com/Fernlizer/engine-lab/blob/main/specs/data-schema.md) v0.2 และมี run manifest แยกต่างหาก
 
 ## ติดตั้ง
 
@@ -41,13 +41,17 @@ python honda_parts_scraper.py years --cc 150 --model CBR --type MOTO
 # ดึงแคตตาล็อกทั้งหมด
 python honda_parts_scraper.py catalog --cc 160 --model CLICK --year 2024
 python honda_parts_scraper.py catalog --cc 150 --model CBR --year 2021 --type MOTO --format json
+
+# ค่าเริ่มต้นจะไม่เขียนไฟล์ถ้ามี category ล้มเหลว
+# ใช้เฉพาะเมื่อยอมรับ partial output และ non-zero exit code
+python honda_parts_scraper.py catalog --cc 150 --model CBR --year 2021 --type MOTO --allow-partial
 ```
 
 ### 2. CBR150 Extractor (สำหรับ engine-lab)
 
 ```bash
-# ดึง engine parts ปี 2021
-python cbr150_extractor.py --year 2021 --engine-only
+# ดึง engine parts ปี 2021 (ต้องระบุ model code ถ้าพบหลาย code)
+python cbr150_extractor.py --year 2021 --model-code CBR150RK --engine-only
 
 # ดึงทุก category
 python cbr150_extractor.py --year 2021 --all
@@ -55,11 +59,15 @@ python cbr150_extractor.py --year 2021 --all
 # เลือก model code เฉพาะ
 python cbr150_extractor.py --year 2021 --model-code CBR150RK --engine-only
 
+# ดึงเฉพาะ block เพื่อลดจำนวน request
+python cbr150_extractor.py --year 2021 --model-code CBR150RK --block E-4 E-5
+
 # ดึงหลายปี
 python cbr150_extractor.py --year 2021 2022 2024 --engine-only
 
 # กำหนด output directory
-python cbr150_extractor.py --year 2021 --output ~/engine-lab/data/parts/honda-cbr150/thailand/2021
+python cbr150_extractor.py --year 2021 --model-code CBR150RK \
+  --output ~/engine-lab/data/parts/honda-cbr150/thailand/2021/candidate/bike-parts/CBR150RK
 
 # รอ CAPTCHA แทน fail-fast
 python cbr150_extractor.py --year 2021 --wait-on-captcha
@@ -88,15 +96,16 @@ JSON ตาม [part-catalog-extraction.schema.json](https://github.com/Fernlize
 
 ```json
 {
-  "schema_version": "0.1",
+  "schema_version": "0.2",
   "dataset_id": "DATASET-HONDA-CBR150RK-TH-2021-E-1",
   "stage": "raw_extraction",
   "status": "candidate",
   "evidence_level": "C",
-  "source_id": "SRC-HONDA-THA-BIKE-PARTS-CO-TH-CBR150RK-2021-2026",
-  "source_url": "https://honda.bike-parts.co.th/honda-motorcycle/150-MOTO/CBR/2021/CBR150RK/41739",
+  "source_id": "SRC-HONDA-BIKE-PARTS-TH-CBR150RK-2021",
+  "source_url": "https://honda.bike-parts.co.th/honda-motorcycle/150-MOTO/CBR/2021/CBR150RK/CYLINDER-HEAD-COVER/108614/E1/0/41739",
+  "source_content_hash": "c605ef6b06eaa5335c8e75eec97255da43387d76415de2170d41847f18e385bd",
   "observed_at": "2026-09-14",
-  "content_hash": "efaecbcfdfb714f6",
+  "content_hash": "c24fd03da1d3a12262749283c86144e465b73dc808ecbc85e770be7aab36465f",
   "applicability": {
     "manufacturer": "Honda",
     "model": "CBR150R",
@@ -111,7 +120,7 @@ JSON ตาม [part-catalog-extraction.schema.json](https://github.com/Fernlize
     "page": null
   },
   "completeness_status": "partial",
-  "price_policy": "THB inclusive of 7% VAT",
+  "price_policy": "Observed retail prices are excluded from Engine Lab extraction records because they are volatile and are not engineering parameters.",
   "items": [
     {
       "reference_number": "1",
@@ -119,14 +128,11 @@ JSON ตาม [part-catalog-extraction.schema.json](https://github.com/Fernlize
       "description": "ฝาครอบฝาสูบ",
       "quantity": null,
       "status": "candidate",
-      "notes": "Source: https://... Price: 651,63 ฿. Physical dimensions and material remain unknown."
+      "notes": "Secondary-source catalog identity. Physical engineering attributes remain UNKNOWN."
     }
   ],
   "parameter_series": [],
-  "unresolved_references": [
-    "E-9:LEFT COVER:CAPTCHA",
-    "E-18:THROTTLE BODY:timeout"
-  ],
+  "unresolved_references": ["catalog_quantity:one_or_more_items:unknown"],
   "notes": "Evidence level C — secondary source, pending PEC cross-check."
 }
 ```
@@ -174,52 +180,36 @@ The scraper extracts `reference_number` from `span.ref-libelle` (diagram referen
 
 Same part number can appear in multiple positions with different quantities. Deduplication would lose positional information.
 
+### Run status and dataset completeness are separate
+
+Every run writes `_extraction-manifest.json`. `run_status: complete` means every requested page was fetched and parsed. It does not mean all engineering fields are known. For example, a successfully fetched page still has `completeness_status: partial` while catalog quantity remains unknown.
+
 ### Output directory convention
 
 ```
 data/parts/honda-cbr150/{market}/{year}/
 ├── candidate/
 │   └── bike-parts/       # scraper output (evidence level C)
+│       └── CBR150RK/      # exact model code prevents variant overwrite
 └── verified/
     └── pec/              # PEC cross-checked (evidence level A)
 ```
 
 Candidate and verified data must never overwrite each other.
 
-## CBR150 Engine Block Mapping
+## Catalog Block IDs
 
-| Block | Category | CBR150 |
-|-------|----------|--------|
-| E-1 | CYLINDER HEAD COVER | ✅ |
-| E-2 | CYLINDER HEAD | ✅ |
-| E-3 | CAMSHAFT - VALVE | ✅ |
-| E-4 | CAM CHAIN - TENSIONER | ✅ |
-| E-5 | CYLINDER | ✅ |
-| E-6 | WATER PUMP | ✅ |
-| E-7 | ALTERNATOR | ✅ |
-| E-8 | OIL PUMP | ✅ |
-| E-9 | LEFT COVER | ❌ ไม่มีใน CBR150RK |
-| E-10 | RADIATOR | ✅ |
-| E-11 | VARIATOR | ❌ manual gearbox |
-| E-12 | CLUTCH | ✅ |
-| E-13 | GEARBOX | ✅ |
-| E-14 | RIGHT CRANKCASE COVER | ✅ |
-| E-15 | LEFT CRANKCASE COVER | ✅ |
-| E-16 | CRANKCASE | ❌ |
-| E-17 | CRANKSHAFT - PISTON | ✅ |
-| E-18 | THROTTLE BODY - INJECTOR | ❌ |
-| E-19 | CARBURETOR | ❌ fuel injected |
-| E-20 | INTAKE MANIFOLD | ❌ |
+Block ID ถูกอ่านจาก URL ของ catalog โดยตรง เช่น `/E1/` → `E-1` และ `/E23/` → `E-23` ไม่ใช้ตารางชื่อหมวดแบบ hardcode เพราะลำดับ block แตกต่างกันได้ตาม model code และ revision ของ catalog
 
 ## Known Limitations
 
 | Limitation | Impact | Workaround |
 |-----------|--------|------------|
-| Quantity not in static HTML | `quantity: null` | Browser-based extraction needed |
-| Reference only, not exploded diagram position | `ref_number` from list, not diagram | Interactive PEC session |
+| Quantity not in observed static product rows | `quantity: null` | Cross-check with PEC or another source that explicitly reports BOM quantity |
+| Reference comes from product-row label | Cannot prove hotspot geometry | Cross-check exploded diagram in PEC |
 | honda.bike-parts.co.th is secondary source | `evidence_level: C` | Cross-check with PEC |
-| Rate limiting (reCAPTCHA) | ~15min block after too many requests | `--delay 5`, `--wait-on-captcha` |
-| Model code selection | Manual or first-match | `--model-code` flag |
+| Rate limiting (reCAPTCHA) | Extraction stops immediately by default | Reduce scope with `--block`; opt in to bounded waiting with `--wait-on-captcha` |
+| Multiple model codes | Extraction refuses to guess | Provide `--model-code` explicitly |
 
 ## PEC Cross-Check Findings
 
@@ -241,7 +231,7 @@ This confirms: **scraper alone is not sufficient** — PEC cross-check is requir
 - **Data**: Honda motorcycle/scooter parts catalog
 - **Coverage**: Thailand market, all models, all years
 - **Format**: Schema.org Microdata (Product) + HTML ref-libelle
-- **Price**: THB inclusive of 7% VAT
+- **Price**: Present on the website but intentionally excluded from Engine Lab records
 - **Evidence Level**: C (secondary source)
 
 ## License

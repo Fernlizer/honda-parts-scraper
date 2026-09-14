@@ -21,6 +21,7 @@ import json
 import csv
 import re
 import sys
+import hashlib
 from typing import List, Dict, Optional
 from dataclasses import dataclass, asdict
 from pathlib import Path
@@ -34,6 +35,47 @@ except ImportError:
     USE_CURL_CFFI = False
 
 from bs4 import BeautifulSoup
+
+
+class CaptchaError(RuntimeError):
+    """The source redirected the request to its CAPTCHA page."""
+
+
+def parse_category_html(html: str) -> List[Dict]:
+    """Parse one static category page without inventing missing fields."""
+    soup = BeautifulSoup(html, 'html.parser')
+    parts = []
+
+    # Each Product wrapper contains the diagram reference in its leading
+    # col-etape7 child. Alternatives remain separate Product wrappers and can
+    # legitimately share the same reference number.
+    for product in soup.find_all(itemtype='http://schema.org/Product'):
+        ref_span = product.select_one('span.ref-libelle')
+        ref_number = ref_span.get_text(strip=True) if ref_span else None
+        name_elem = product.find(itemprop='name')
+        mpn_elem = product.find(itemprop='mpn')
+        price_elem = product.find(itemprop='price')
+
+        name = name_elem.get_text(strip=True) if name_elem else ''
+        mpn = mpn_elem.get_text(strip=True) if mpn_elem else ''
+        price = price_elem.get_text(strip=True) if price_elem else ''
+        if not mpn:
+            continue
+
+        ref_link = product.find('span', class_='JS_ref_link')
+        part_number = ref_link.get_text(strip=True) if ref_link else mpn
+        parts.append({
+            'part_number': part_number,
+            'part_number_raw': mpn,
+            'name': name,
+            'price': price,
+            'ref_number': ref_number,
+            # The visible order input defaults to 1 for shopping-cart use;
+            # it is not the catalog assembly quantity.
+            'quantity': None,
+        })
+
+    return parts
 
 
 @dataclass
@@ -54,7 +96,15 @@ class HondaPartsScraper:
     
     BASE_URL = "https://honda.bike-parts.co.th"
     
-    def __init__(self, delay: float = 2.0, max_retries: int = 3):
+    def __init__(
+        self,
+        delay: float = 2.0,
+        max_retries: int = 3,
+        wait_on_captcha: bool = False,
+        request_timeout: float = 20.0,
+        captcha_wait_seconds: float = 300.0,
+        sleep_fn=time.sleep,
+    ):
         """
         Args:
             delay: หน่วงเวลาระหว่าง request (วินาที) - เพิ่มถ้าเจอ CAPTCHA
@@ -62,6 +112,11 @@ class HondaPartsScraper:
         """
         self.delay = delay
         self.max_retries = max_retries
+        self.wait_on_captcha = wait_on_captcha
+        self.request_timeout = request_timeout
+        self.captcha_wait_seconds = captcha_wait_seconds
+        self._sleep = sleep_fn
+        self.last_failures: List[str] = []
         
         if USE_CURL_CFFI:
             self.session = curl_requests.Session(impersonate='chrome131')
@@ -90,18 +145,22 @@ class HondaPartsScraper:
         for attempt in range(self.max_retries):
             # หน่วงเวลาก่อน request
             if self._request_count > 0:
-                time.sleep(self.delay)
+                self._sleep(self.delay)
             
             self._request_count += 1
-            response = self.session.get(url)
+            response = self.session.get(url, timeout=self.request_timeout)
             
             if self._is_captcha(response):
-                wait_time = 300  # 5 นาที
+                if not self.wait_on_captcha:
+                    raise CaptchaError(f"CAPTCHA required for {url}")
+
+                wait_time = self.captcha_wait_seconds
                 print(f"   ⚠️  CAPTCHA detected! Waiting {wait_time//60} minutes...")
                 print(f"   💡 Tip: Open the URL in browser and solve the CAPTCHA manually:")
                 print(f"      {response.url}")
                 print(f"   ⏳ Waiting {wait_time} seconds (attempt {attempt+1}/{self.max_retries})...")
-                time.sleep(wait_time)
+                if attempt + 1 < self.max_retries:
+                    self._sleep(wait_time)
                 continue
             
             response.raise_for_status()
@@ -149,11 +208,11 @@ class HondaPartsScraper:
             'chercher_reference': part_number
         }
         
-        time.sleep(self.delay)
-        r = self.session.post(search_url, data=data)
+        self._sleep(self.delay)
+        r = self.session.post(search_url, data=data, timeout=self.request_timeout)
         
         if self._is_captcha(r):
-            return {'query': part_number, 'found': False, 'error': 'CAPTCHA'}
+            raise CaptchaError(f"CAPTCHA required for {search_url}")
         
         r.raise_for_status()
         soup = BeautifulSoup(r.text, 'html.parser')
@@ -318,7 +377,7 @@ class HondaPartsScraper:
         
         return categories
     
-    def get_parts_from_category(self, category_url: str) -> List[Dict]:
+    def get_category_extraction(self, category_url: str) -> Dict:
         """
         ดึงรายการอะไหล่จากหมวด
         
@@ -330,44 +389,15 @@ class HondaPartsScraper:
         No deduplication — same part in multiple positions is preserved.
         """
         r = self._get_with_retry(category_url)
-        soup = BeautifulSoup(r.text, 'html.parser')
-        parts = []
-        
-        # Find all card-body containers (each contains one or more products)
-        for card in soup.find_all('div', id='card-body'):
-            # Each card may have multiple products
-            for product in card.find_all(itemtype='http://schema.org/Product'):
-                name_elem = product.find(itemprop='name')
-                mpn_elem = product.find(itemprop='mpn')
-                price_elem = product.find(itemprop='price')
-                
-                name = name_elem.get_text(strip=True) if name_elem else ''
-                mpn = mpn_elem.get_text(strip=True) if mpn_elem else ''
-                price = price_elem.get_text(strip=True) if price_elem else ''
-                
-                if not mpn:
-                    continue
-                
-                # Extract reference number from span.ref-libelle
-                ref_span = product.find('span', class_='ref-libelle')
-                ref_number = ref_span.get_text(strip=True) if ref_span else None
-                
-                # Find part number with dashes
-                part_number = mpn
-                ref_link = product.find('span', class_='JS_ref_link')
-                if ref_link:
-                    part_number = ref_link.get_text(strip=True)
-                
-                parts.append({
-                    'part_number': part_number,
-                    'part_number_raw': mpn,
-                    'name': name,
-                    'price': price,
-                    'ref_number': ref_number,
-                    'quantity': None,  # Not available in static HTML
-                })
-        
-        return parts
+        return {
+            'source_url': r.url,
+            'source_content_hash': hashlib.sha256(r.content).hexdigest(),
+            'parts': parse_category_html(r.text),
+        }
+
+    def get_parts_from_category(self, category_url: str) -> List[Dict]:
+        """Backward-compatible list-only category extraction."""
+        return self.get_category_extraction(category_url)['parts']
     
     # ==========================================
     # 3. ดึงอะไหล่ทั้งหมดของรุ่นรถ
@@ -379,10 +409,14 @@ class HondaPartsScraper:
         ดึงอะไหล่ทั้งหมดของรุ่นรถ
         """
         all_parts = []
+        self.last_failures = []
+        captcha_encountered = False
         
         print(f"🔍 กำลังดึงรหัสรุ่น Honda {model} {cc}cc ปี {year}...")
         model_codes = self.get_model_codes(cc, model, year, vehicle_type)
         print(f"📋 พบ {len(model_codes)} รหัสรุ่น")
+        if not model_codes:
+            self.last_failures.append(f"MODEL_DISCOVERY:{model}:{year}:empty")
         
         for code_info in model_codes:
             print(f"\n🏍️  {code_info['name']} ({code_info['code']})")
@@ -408,8 +442,21 @@ class HondaPartsScraper:
                     
                     print(f"   [{i}/{len(categories)}] ✅ {cat['name']}: {len(parts_data)} อะไหล่")
                     
-                except Exception as e:
+                except CaptchaError as e:
+                    self.last_failures.append(
+                        f"{code_info['code']}:{cat['name']}:CAPTCHA"
+                    )
                     print(f"   [{i}/{len(categories)}] ❌ {cat['name']}: {e}")
+                    captcha_encountered = True
+                    break
+                except Exception as e:
+                    self.last_failures.append(
+                        f"{code_info['code']}:{cat['name']}:{type(e).__name__}"
+                    )
+                    print(f"   [{i}/{len(categories)}] ❌ {cat['name']}: {e}")
+
+            if captcha_encountered:
+                break
         
         return all_parts
     
@@ -502,6 +549,11 @@ def main():
     catalog_parser.add_argument('--output', '-o', help='ชื่อไฟล์ output')
     catalog_parser.add_argument('--format', '-f', default='csv', choices=['csv', 'json'])
     catalog_parser.add_argument('--delay', type=float, default=2.0, help='หน่วงเวลา (วินาที)')
+    catalog_parser.add_argument(
+        '--allow-partial',
+        action='store_true',
+        help='อนุญาตให้เขียน output แม้มี category ล้มเหลว (ค่าเริ่มต้นไม่เขียน)',
+    )
     
     args = parser.parse_args()
     
@@ -555,6 +607,13 @@ def main():
         print(f"⏱️  Delay: {args.delay} วินาที")
         
         parts = scraper.scrape_full_model(args.cc, args.model, args.year, args.type)
+
+        if scraper.last_failures and not args.allow_partial:
+            print("\n❌ ไม่เขียน output เพราะ extraction ไม่ครบ:")
+            for failure in scraper.last_failures:
+                print(f"   • {failure}")
+            print("ใช้ --allow-partial เมื่อยอมรับ partial output อย่างชัดเจน")
+            raise SystemExit(1)
         
         if parts:
             print(f"\n✅ ดึงข้อมูลสำเร็จ: {len(parts)} อะไหล่")
@@ -575,8 +634,15 @@ def main():
             
             if len(parts) > 10:
                 print(f"   ... และอีก {len(parts) - 10} อะไหล่")
+
+            if scraper.last_failures:
+                print("\n⚠️  Partial output — failures:")
+                for failure in scraper.last_failures:
+                    print(f"   • {failure}")
+                raise SystemExit(1)
         else:
             print("❌ ไม่พบข้อมูลอะไหล่")
+            raise SystemExit(1)
 
 
 if __name__ == "__main__":

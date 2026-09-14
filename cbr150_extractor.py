@@ -6,9 +6,9 @@ Changes from v1:
 - model_code as opaque identifier in applicability (never translated)
 - stage/status/evidence_level as separate dimensions
 - quantity: null when unknown (never 1)
-- reference_number from hotspot or null
+- reference_number from the static product row or null
 - no deduplication by part number
-- URL and raw snapshot preserved
+- exact category URL plus raw-response and normalized-content hashes preserved
 - completeness_status: complete|partial|failed
 - category failures tracked in unresolved_references
 - CAPTCHA is fail-fast by default (--wait-on-captcha to opt in)
@@ -17,122 +17,25 @@ Changes from v1:
 import sys
 import os
 import json
-import time
 import re
 import hashlib
 import argparse
 from datetime import date
 from pathlib import Path
 from typing import List, Dict, Optional, Tuple
-from dataclasses import dataclass, field
 
 sys.path.insert(0, str(Path(__file__).parent))
-from honda_parts_scraper import HondaPartsScraper
-
-
-# ─── Category → Block ID mapping ───────────────────────────────
-CATEGORY_MAP = {
-    'CYLINDER HEAD COVER': 'E-1',
-    'CYLINDER HEAD': 'E-2',
-    'CAMSHAFT - VALVE': 'E-3',
-    'CAMSHAFT--VALVE': 'E-3',
-    'CAM CHAIN - TENSIONER': 'E-4',
-    'CAM-CHAIN--TENSIONER': 'E-4',
-    'CYLINDER': 'E-5',
-    'WATER PUMP': 'E-6',
-    'ALTERNATOR': 'E-7',
-    'OIL PUMP': 'E-8',
-    'LEFT COVER': 'E-9',
-    'RADIATOR': 'E-10',
-    'VARIATOR': 'E-11',
-    'CLUTCH': 'E-12',
-    'GEARBOX': 'E-13',
-    'RIGHT CRANKCASE COVER': 'E-14',
-    'LEFT CRANKCASE COVER': 'E-15',
-    'CRANKCASE': 'E-16',
-    'CRANKSHAFT - PISTON': 'E-17',
-    'CRANKSHAFT--PISTON': 'E-17',
-    'THROTTLE BODY - INJECTOR': 'E-18',
-    'THROTTLE-BODY--INJECTOR': 'E-18',
-    'CARBURETOR': 'E-19',
-    'INTAKE MANIFOLD': 'E-20',
-    'HEADLIGHT': 'F-1',
-    'METER': 'F-2',
-    'MIRROR': 'F-3',
-    'HANDLE LEVER - CABLE - SWITCH': 'F-4',
-    'HANDLE-LEVER--CABLE--SWITCH': 'F-4',
-    'FRONT BRAKE MASTER CYLINDER': 'F-5',
-    'FRONT-BRAKE-MASTER-CYLINDER': 'F-5',
-    'REAR BRAKE MASTER CYLINDER': 'F-6',
-    'REAR-BRAKE-MASTER-CYLINDER': 'F-6',
-    'REAR BRAKE HOSE': 'F-7',
-    'REAR-BRAKE-HOSE': 'F-7',
-    'HANDLEBAR - COWL': 'F-8',
-    'HANDLEBAR--COWL': 'F-8',
-    'STEERING STEM': 'F-9',
-    'STEERING-STEM': 'F-9',
-    'FRONT FENDER': 'F-10',
-    'FRONT-FENDER': 'F-10',
-    'FRONT COWL': 'F-11',
-    'FRONT-COWL': 'F-11',
-    'LEG SHIELD': 'F-12',
-    'LEG-SHIELD': 'F-12',
-    'FLOOR PANEL - SIDE SKIRT': 'F-13',
-    'FLOOR-PANEL--SIDE-SKIRT': 'F-13',
-    'FOOTREST': 'F-14',
-    'REAR COWL': 'F-15',
-    'REAR-COWL': 'F-15',
-    'FRONT FORK': 'F-16',
-    'FRONT-FORK': 'F-16',
-    'FRONT BRAKE CALIPER': 'F-17',
-    'FRONT-BRAKE-CALIPER': 'F-17',
-    'FRONT WHEEL': 'F-18',
-    'FRONT-WHEEL': 'F-18',
-    'REAR BRAKE CALIPER': 'F-19',
-    'REAR-BRAKE-CALIPER': 'F-19',
-    'REAR WHEEL': 'F-20',
-    'REAR-WHEEL': 'F-20',
-    'SWING ARM': 'F-21',
-    'SWING-ARM': 'F-21',
-    'SEAT - LUGGAGE BOX': 'F-22',
-    'SEAT--LUGGAGE-BOX': 'F-22',
-    'FUEL TANK': 'F-23',
-    'FUEL-TANK': 'F-23',
-    'AIR FILTER': 'F-24',
-    'AIR-FILTER': 'F-24',
-    'EXHAUST MUFFLER': 'F-25',
-    'EXHAUST-MUFFLER': 'F-25',
-    'STAND': 'F-26',
-    'REAR SHOCK ABSORBER': 'F-27',
-    'REAR-SHOCK-ABSORBER': 'F-27',
-    'INDICATOR': 'F-28',
-    'TAILLIGHT': 'F-29',
-    'REAR FENDER - LICENSE PLATE LAMP': 'F-30',
-    'REAR-FENDER--LICENSE-PLATE-LAMP': 'F-30',
-    'BATTERY': 'F-31',
-    'WIRE HARNESS': 'F-32',
-    'WIRE-HARNESS': 'F-32',
-    'FRAME': 'F-33',
-    'EXPANSION TANK': 'F-34',
-    'EXPANSION-TANK': 'F-34',
-    'TOOL': 'F-35',
-    'CAUTION LABEL': 'F-36',
-    'CAUTION-LABEL': 'F-36',
-    'STICKERS': 'F-37',
-}
+from honda_parts_scraper import CaptchaError, HondaPartsScraper
 
 
 # ─── Helpers ────────────────────────────────────────────────────
 
-def lookup_block_id(cat_name: str) -> Optional[str]:
-    """หา block ID จาก category name"""
-    if cat_name in CATEGORY_MAP:
-        return CATEGORY_MAP[cat_name]
-    normalized = cat_name.upper().replace(' ', '-').replace('--', '-')
-    for key, val in CATEGORY_MAP.items():
-        if key.upper().replace(' ', '-') == normalized:
-            return val
-    return None
+def lookup_block_id(category_url: str) -> Optional[str]:
+    """Read the catalog's own E/F block identifier from its URL."""
+    match = re.search(r'/([EF])(\d+[A-Z0-9]*)/', category_url, re.IGNORECASE)
+    if not match:
+        return None
+    return f"{match.group(1).upper()}-{match.group(2).upper()}"
 
 
 def make_dataset_id(model_code: str, market: str, year: str, block_id: str) -> str:
@@ -141,15 +44,15 @@ def make_dataset_id(model_code: str, market: str, year: str, block_id: str) -> s
     return f"DATASET-HONDA-{model_code}-{market_upper}-{year}-{block_id}"
 
 
-def make_source_id(source_site: str, model_code: str, year: str) -> str:
-    clean = source_site.replace('.', '-').upper()
-    return f"SRC-HONDA-THA-{clean}-{model_code}-{year}-{date.today().year}"
+def make_source_id(market: str, model_code: str, year: str) -> str:
+    market_code = market.upper()[:2]
+    return f"SRC-HONDA-BIKE-PARTS-{market_code}-{model_code}-{year}"
 
 
 def compute_content_hash(items: list) -> str:
     """Hash ของ items เพื่อ detect changes"""
     canonical = json.dumps(items, sort_keys=True, ensure_ascii=False)
-    return hashlib.sha256(canonical.encode()).hexdigest()[:16]
+    return hashlib.sha256(canonical.encode()).hexdigest()
 
 
 # ─── Extraction record builder ─────────────────────────────────
@@ -159,13 +62,13 @@ def build_extraction_record(
     dataset_id: str,
     source_id: str,
     source_url: str,
+    source_content_hash: str,
     market: str,
     year: str,
     model_code: str,
     block_id: str,
     block_name: str,
     parts: List[Dict],
-    failed_categories: List[str],
     observed_at: str = None,
 ) -> Dict:
     """
@@ -189,29 +92,25 @@ def build_extraction_record(
             "description": part['name'],
             "quantity": part.get('quantity'),  # null if not observed
             "status": "candidate",
-            "notes": (
-                f"Source: {source_url}. "
-                f"Price: {part.get('price', 'N/A')}. "
-                f"Physical dimensions and material remain unknown."
-            ),
+            "notes": "Secondary-source catalog identity. Physical engineering attributes remain UNKNOWN.",
         })
 
-    # completeness
-    if not failed_categories:
-        completeness = "complete"
-    elif len(items) > 0:
-        completeness = "partial"
-    else:
-        completeness = "failed"
+    unresolved = []
+    if any(item["reference_number"] is None for item in items):
+        unresolved.append("reference_number:one_or_more_items:unknown")
+    if any(item["quantity"] is None for item in items):
+        unresolved.append("catalog_quantity:one_or_more_items:unknown")
+    completeness = "complete" if not unresolved else "partial"
 
     return {
-        "schema_version": "0.1",
+        "schema_version": "0.2",
         "dataset_id": dataset_id,
         "stage": "raw_extraction",
         "status": "candidate",
         "evidence_level": "C",
         "source_id": source_id,
         "source_url": source_url,
+        "source_content_hash": source_content_hash,
         "observed_at": observed_at,
         "content_hash": compute_content_hash(items),
         "applicability": {
@@ -228,10 +127,10 @@ def build_extraction_record(
             "page": None,
         },
         "completeness_status": completeness,
-        "price_policy": "THB inclusive of 7% VAT",
+        "price_policy": "Observed retail prices are excluded from Engine Lab extraction records because they are volatile and are not engineering parameters.",
         "items": items,
         "parameter_series": [],
-        "unresolved_references": failed_categories,
+        "unresolved_references": unresolved,
         "notes": (
             f"Automated extraction from honda.bike-parts.co.th. "
             f"Model code: {model_code} (opaque identifier). "
@@ -251,13 +150,17 @@ def scrape_cbr150_year(
     engine_only: bool = False,
     delay: float = 3.0,
     wait_on_captcha: bool = False,
+    blocks: Optional[List[str]] = None,
 ) -> Tuple[List[str], List[str]]:
     """
     Extract CBR150 parts for a given year.
 
     Returns: (created_files, failed_categories)
     """
-    scraper = HondaPartsScraper(delay=delay)
+    scraper = HondaPartsScraper(
+        delay=delay,
+        wait_on_captcha=wait_on_captcha,
+    )
 
     # Resolve model codes
     print(f"\n🔍 Finding CBR150 model codes for {year}...")
@@ -265,7 +168,7 @@ def scrape_cbr150_year(
 
     if not all_codes:
         print(f"❌ No CBR150 models found for {year}")
-        return [], []
+        return [], [f"MODEL_DISCOVERY:{year}:empty"]
 
     # Select model code
     if model_code:
@@ -274,14 +177,14 @@ def scrape_cbr150_year(
             print(f"❌ Model code {model_code} not found. Available:")
             for c in all_codes:
                 print(f"   • {c['code']}")
-            return [], []
+            return [], [f"MODEL_SELECTION:{model_code}:not_found"]
     else:
-        # Default: first code, but warn about others
-        selected = [all_codes[0]]
         if len(all_codes) > 1:
-            print(f"⚠️  Multiple model codes found. Using {all_codes[0]['code']}. Others:")
-            for c in all_codes[1:]:
-                print(f"   • {c['code']} (not selected)")
+            print("❌ Multiple model codes found; --model-code is required:")
+            for c in all_codes:
+                print(f"   • {c['code']}")
+            return [], [f"MODEL_SELECTION:{year}:ambiguous"]
+        selected = [all_codes[0]]
 
     code_info = selected[0]
     mc = code_info['code']
@@ -290,11 +193,10 @@ def scrape_cbr150_year(
 
     # Output dir: candidate/bike-parts/
     if output_dir is None:
-        output_dir = f"engine-lab-data/data/parts/honda-cbr150/{market}/{year}/candidate/bike-parts"
+        output_dir = f"engine-lab-data/data/parts/honda-cbr150/{market}/{year}/candidate/bike-parts/{mc}"
     os.makedirs(output_dir, exist_ok=True)
 
-    source_id = make_source_id('honda.bike-parts.co.th', mc, year)
-    source_url_base = "https://honda.bike-parts.co.th"
+    source_id = make_source_id(market, mc, year)
 
     # Get categories
     categories = scraper.get_categories(code_info['url'])
@@ -302,25 +204,35 @@ def scrape_cbr150_year(
 
     created_files = []
     failed_categories = []
+    successful_categories = []
     total_items = 0
+    requested_blocks = {b.upper() for b in blocks} if blocks else None
+    attempted_categories = 0
+    discovered_blocks = set()
 
     for i, cat in enumerate(categories, 1):
         cat_name = cat['name']
-        block_id = lookup_block_id(cat_name)
+        block_id = lookup_block_id(cat['url'])
 
         if not block_id:
-            block_id = f"X-{i}"
+            failed_categories.append(f"UNKNOWN_BLOCK:{cat_name}:url_missing_block_id")
+            continue
+        discovered_blocks.add(block_id)
 
         if engine_only and not block_id.startswith('E'):
             continue
+        if requested_blocks and block_id not in requested_blocks:
+            continue
 
         # Extract parts
-        time.sleep(delay)
+        attempted_categories += 1
         try:
-            parts_data = scraper.get_parts_from_category(cat['url'])
+            category = scraper.get_category_extraction(cat['url'])
+            parts_data = category['parts']
 
             if not parts_data:
-                print(f"   [{i}/{len(categories)}] ⏭️  {cat_name}: 0 parts (empty)")
+                failed_categories.append(f"{block_id}:{cat_name}:empty_result")
+                print(f"   [{i}/{len(categories)}] ❌ {cat_name}: 0 parts (unexpected empty result)")
                 continue
 
             dataset_id = make_dataset_id(mc, market, year, block_id)
@@ -328,14 +240,14 @@ def scrape_cbr150_year(
             extraction = build_extraction_record(
                 dataset_id=dataset_id,
                 source_id=source_id,
-                source_url=f"{source_url_base}/honda-motorcycle/150-MOTO/CBR/{year}/{mc}",
+                source_url=category['source_url'],
+                source_content_hash=category['source_content_hash'],
                 market=market,
                 year=year,
                 model_code=mc,
                 block_id=block_id,
                 block_name=cat_name,
                 parts=parts_data,
-                failed_categories=[],
             )
 
             # Filename
@@ -348,12 +260,53 @@ def scrape_cbr150_year(
                 json.dump(extraction, f, ensure_ascii=False, indent=2)
 
             created_files.append(filepath)
+            successful_categories.append({
+                "block": block_id,
+                "category": cat_name,
+                "source_url": category['source_url'],
+                "items": len(parts_data),
+                "file": filename,
+            })
             total_items += len(parts_data)
             print(f"   [{i}/{len(categories)}] ✅ {block_id} {cat_name}: {len(parts_data)} parts")
 
+        except CaptchaError as e:
+            failed_categories.append(f"{block_id}:{cat_name}:CAPTCHA")
+            print(f"   [{i}/{len(categories)}] ❌ {block_id} {cat_name}: {e}")
+            if not wait_on_captcha:
+                break
         except Exception as e:
             failed_categories.append(f"{block_id}:{cat_name}:{type(e).__name__}")
             print(f"   [{i}/{len(categories)}] ❌ {block_id} {cat_name}: {e}")
+
+    if requested_blocks:
+        for missing_block in sorted(requested_blocks - discovered_blocks):
+            failed_categories.append(f"{missing_block}:not_present_in_model_catalog")
+
+    manifest = {
+        "schema_version": "0.1",
+        "run_status": "failed" if not created_files else ("partial" if failed_categories else "complete"),
+        "evidence_level": "C",
+        "observed_at": str(date.today()),
+        "source_site": "https://honda.bike-parts.co.th",
+        "source_id": source_id,
+        "applicability": {
+            "manufacturer": "Honda",
+            "model": "CBR150R",
+            "model_code": mc,
+            "market": market,
+            "year": int(year) if year.isdigit() else year,
+        },
+        "requested_blocks": sorted(requested_blocks) if requested_blocks else None,
+        "discovered_category_count": len(categories),
+        "discovered_blocks": sorted(discovered_blocks),
+        "attempted_category_count": attempted_categories,
+        "successful_categories": successful_categories,
+        "failures": failed_categories,
+    }
+    manifest_path = os.path.join(output_dir, "_extraction-manifest.json")
+    with open(manifest_path, 'w', encoding='utf-8') as f:
+        json.dump(manifest, f, ensure_ascii=False, indent=2)
 
     # Print summary
     print(f"\n📊 Summary for {mc}:")
@@ -387,6 +340,8 @@ Output structure:
     parser.add_argument('--model-code', help='Specific model code (e.g. CBR150RK)')
     parser.add_argument('--output', '-o', default=None)
     parser.add_argument('--engine-only', action='store_true')
+    parser.add_argument('--block', dest='blocks', nargs='+',
+                        help='Only extract exact catalog blocks, e.g. E-1 E-3')
     parser.add_argument('--delay', type=float, default=3.0)
     parser.add_argument('--wait-on-captcha', action='store_true',
                         help='Wait 5min on CAPTCHA instead of failing immediately')
@@ -396,7 +351,7 @@ Output structure:
     print("=" * 60)
     print("🔧 CBR150 Parts Extractor for engine-lab v2")
     print(f"📡 Source: honda.bike-parts.co.th (evidence level C)")
-    print(f"📋 Schema: part-catalog-extraction v0.1")
+    print(f"📋 Schema: part-catalog-extraction v0.2")
     print(f"⏱️  Delay: {args.delay}s")
     print(f"🤖 CAPTCHA: {'wait' if args.wait_on_captcha else 'fail-fast'}")
     print("=" * 60)
@@ -417,6 +372,7 @@ Output structure:
             engine_only=args.engine_only,
             delay=args.delay,
             wait_on_captcha=args.wait_on_captcha,
+            blocks=args.blocks,
         )
         all_files.extend(files)
         all_failures.extend(failures)
@@ -425,7 +381,7 @@ Output structure:
     print("\n" + "=" * 60)
     print(f"✅ Done: {len(all_files)} files created")
     if all_failures:
-        print(f"❌ {len(all_failures)} failures recorded in unresolved_references")
+        print(f"❌ {len(all_failures)} run failures recorded in _extraction-manifest.json")
     print("=" * 60)
 
     if all_files:
@@ -438,6 +394,9 @@ Output structure:
         print(f"   2. Cross-check with PEC data")
         print(f"   3. Move verified records to verified/pec/")
         print(f"   4. Register source in sources/registry/sources.yaml")
+
+    if all_failures or not all_files:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
