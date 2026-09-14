@@ -1,0 +1,880 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CBR150 Engine Simulator</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0a0a0a;
+    color: #e0e0e0;
+    overflow: hidden;
+    height: 100vh;
+  }
+
+  /* Layout */
+  .app {
+    display: grid;
+    grid-template-columns: 320px 1fr;
+    grid-template-rows: 56px 1fr 48px;
+    height: 100vh;
+  }
+
+  /* Header */
+  .header {
+    grid-column: 1 / -1;
+    background: #111;
+    border-bottom: 1px solid #2a2a2a;
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    gap: 16px;
+  }
+  .header h1 {
+    font-size: 18px;
+    font-weight: 600;
+    color: #ff4444;
+  }
+  .header .subtitle {
+    font-size: 13px;
+    color: #666;
+  }
+  .header .status {
+    margin-left: auto;
+    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: 12px;
+    background: #1a3a1a;
+    color: #4ade80;
+  }
+  .header .status.warning { background: #3a2a1a; color: #fbbf24; }
+  .header .status.error { background: #3a1a1a; color: #f87171; }
+
+  /* Sidebar */
+  .sidebar {
+    background: #111;
+    border-right: 1px solid #2a2a2a;
+    overflow-y: auto;
+    padding: 16px;
+  }
+  .sidebar h2 {
+    font-size: 14px;
+    font-weight: 600;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 12px;
+  }
+
+  /* Parameter groups */
+  .param-group {
+    margin-bottom: 20px;
+    background: #161616;
+    border-radius: 8px;
+    padding: 14px;
+    border: 1px solid #2a2a2a;
+    transition: border-color 0.2s;
+  }
+  .param-group:hover { border-color: #3a3a3a; }
+  .param-group.conflict { border-color: #ff4444; background: #1a1212; }
+  .param-group h3 {
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .param-group h3 .icon { font-size: 16px; }
+
+  /* Parameters */
+  .param {
+    margin-bottom: 10px;
+  }
+  .param:last-child { margin-bottom: 0; }
+  .param label {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: #888;
+    margin-bottom: 4px;
+  }
+  .param label .value {
+    color: #e0e0e0;
+    font-weight: 500;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+  }
+  .param label .unit {
+    color: #555;
+    font-size: 11px;
+  }
+  .param input[type="range"] {
+    width: 100%;
+    height: 4px;
+    -webkit-appearance: none;
+    background: #2a2a2a;
+    border-radius: 2px;
+    outline: none;
+  }
+  .param input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #ff4444;
+    cursor: pointer;
+    border: 2px solid #ff6666;
+  }
+  .param.conflict input[type="range"]::-webkit-slider-thumb {
+    background: #ff8800;
+    border-color: #ffaa00;
+    animation: pulse 1s infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(255, 136, 0, 0.4); }
+    50% { box-shadow: 0 0 0 6px rgba(255, 136, 0, 0); }
+  }
+
+  /* 3D Viewport */
+  .viewport {
+    position: relative;
+    background: #0d0d0d;
+    overflow: hidden;
+  }
+  .viewport canvas {
+    width: 100%;
+    height: 100%;
+  }
+
+  /* Viewport overlay info */
+  .viewport-info {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    background: rgba(17, 17, 17, 0.9);
+    border: 1px solid #2a2a2a;
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-size: 12px;
+    backdrop-filter: blur(10px);
+  }
+  .viewport-info .row {
+    display: flex;
+    justify-content: space-between;
+    gap: 24px;
+    margin-bottom: 4px;
+  }
+  .viewport-info .row:last-child { margin-bottom: 0; }
+  .viewport-info .label { color: #666; }
+  .viewport-info .val { 
+    color: #e0e0e0; 
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-weight: 500;
+  }
+  .viewport-info .val.warning { color: #fbbf24; }
+  .viewport-info .val.error { color: #f87171; }
+
+  /* Conflict panel */
+  .conflicts {
+    position: absolute;
+    bottom: 16px;
+    left: 16px;
+    right: 16px;
+    background: rgba(17, 17, 17, 0.95);
+    border: 1px solid #ff4444;
+    border-radius: 8px;
+    padding: 12px 16px;
+    display: none;
+    backdrop-filter: blur(10px);
+  }
+  .conflicts.active { display: block; }
+  .conflicts h3 {
+    font-size: 13px;
+    color: #ff4444;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .conflict-item {
+    font-size: 12px;
+    color: #fbbf24;
+    margin-bottom: 4px;
+    padding-left: 16px;
+    position: relative;
+  }
+  .conflict-item::before {
+    content: '⚠';
+    position: absolute;
+    left: 0;
+  }
+
+  /* Footer */
+  .footer {
+    grid-column: 1 / -1;
+    background: #111;
+    border-top: 1px solid #2a2a2a;
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    font-size: 11px;
+    color: #555;
+    gap: 20px;
+  }
+  .footer .fps {
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    color: #4ade80;
+  }
+
+  /* Presets */
+  .presets {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+  .preset-btn {
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 4px;
+    border: 1px solid #2a2a2a;
+    background: #1a1a1a;
+    color: #888;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .preset-btn:hover {
+    border-color: #ff4444;
+    color: #ff4444;
+    background: #1a1212;
+  }
+  .preset-btn.active {
+    border-color: #ff4444;
+    color: #ff4444;
+    background: #2a1212;
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- Header -->
+  <div class="header">
+    <h1>⚡ CBR150 Engine Lab</h1>
+    <span class="subtitle">Parametric Engine Simulator</span>
+    <span class="status" id="status">● Ready</span>
+  </div>
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="presets">
+      <button class="preset-btn active" onclick="loadPreset('stock')">Stock</button>
+      <button class="preset-btn" onclick="loadPreset('bore-up')">Bore Up</button>
+      <button class="preset-btn" onclick="loadPreset('high-comp')">High Comp</button>
+      <button class="preset-btn" onclick="loadPreset('overbore')">Overbore</button>
+    </div>
+
+    <h2>Cylinder Block</h2>
+    <div class="param-group" id="group-bore">
+      <h3><span class="icon">🔩</span> Bore & Stroke</h3>
+      <div class="param" id="param-bore">
+        <label>
+          <span>Bore (กระบอกสูบ)</span>
+          <span><span class="value" id="bore-val">63.5</span> <span class="unit">mm</span></span>
+        </label>
+        <input type="range" id="bore" min="60" max="68" step="0.1" value="63.5">
+      </div>
+      <div class="param" id="param-stroke">
+        <label>
+          <span>Stroke (ช่วงชัก)</span>
+          <span><span class="value" id="stroke-val">47.2</span> <span class="unit">mm</span></span>
+        </label>
+        <input type="range" id="stroke" min="44" max="52" step="0.1" value="47.2">
+      </div>
+    </div>
+
+    <h2>Piston</h2>
+    <div class="param-group" id="group-piston">
+      <h3><span class="icon">⚙️</span> Piston Dimensions</h3>
+      <div class="param" id="param-piston-dia">
+        <label>
+          <span>Piston Diameter (เส้นผ่าศูนย์กลางลูกสูบ)</span>
+          <span><span class="value" id="piston-dia-val">63.45</span> <span class="unit">mm</span></span>
+        </label>
+        <input type="range" id="piston-dia" min="59.5" max="67.5" step="0.05" value="63.45">
+      </div>
+      <div class="param" id="param-piston-height">
+        <label>
+          <span>Piston Height (ความสูงลูกสูบ)</span>
+          <span><span class="value" id="piston-height-val">30.0</span> <span class="unit">mm</span></span>
+        </label>
+        <input type="range" id="piston-height" min="25" max="40" step="0.5" value="30.0">
+      </div>
+      <div class="param" id="param-pin-dia">
+        <label>
+          <span>Pin Diameter (เส้นผ่าศูนย์กลางสลัก)</span>
+          <span><span class="value" id="pin-dia-val">15.0</span> <span class="unit">mm</span></span>
+        </label>
+        <input type="range" id="pin-dia" min="13" max="18" step="0.1" value="15.0">
+      </div>
+    </div>
+
+    <h2>Combustion Chamber</h2>
+    <div class="param-group" id="group-chamber">
+      <h3><span class="icon">🔥</span> Compression</h3>
+      <div class="param" id="param-comp-ratio">
+        <label>
+          <span>Compression Ratio (อัตราส่วนกำลังอัด)</span>
+          <span><span class="value" id="comp-ratio-val">11.3</span> <span class="unit">:1</span></span>
+        </label>
+        <input type="range" id="comp-ratio" min="9" max="14" step="0.1" value="11.3">
+      </div>
+      <div class="param" id="param-chamber-vol">
+        <label>
+          <span>Chamber Volume (ปริมาตรห้องเผาไหม้)</span>
+          <span><span class="value" id="chamber-vol-val">8.2</span> <span class="unit">cc</span></span>
+        </label>
+        <input type="range" id="chamber-vol" min="5" max="15" step="0.1" value="8.2">
+      </div>
+    </div>
+
+    <h2>Valvetrain</h2>
+    <div class="param-group" id="group-valves">
+      <h3><span class="icon">🔧</span> Valve Specs</h3>
+      <div class="param" id="param-intake-dia">
+        <label>
+          <span>Intake Valve Dia (วาล์วไอดี)</span>
+          <span><span class="value" id="intake-dia-val">23.0</span> <span class="unit">mm</span></span>
+        </label>
+        <input type="range" id="intake-dia" min="20" max="28" step="0.1" value="23.0">
+      </div>
+      <div class="param" id="param-exhaust-dia">
+        <label>
+          <span>Exhaust Valve Dia (วาล์วไอเสีย)</span>
+          <span><span class="value" id="exhaust-dia-val">20.0</span> <span class="unit">mm</span></span>
+        </label>
+        <input type="range" id="exhaust-dia" min="17" max="25" step="0.1" value="20.0">
+      </div>
+    </div>
+  </div>
+
+  <!-- 3D Viewport -->
+  <div class="viewport">
+    <canvas id="canvas3d"></canvas>
+
+    <div class="viewport-info">
+      <div class="row">
+        <span class="label">Displacement</span>
+        <span class="val" id="info-displacement">149.2 cc</span>
+      </div>
+      <div class="row">
+        <span class="label">Bore/Stroke</span>
+        <span class="val" id="info-bore-stroke">63.5 × 47.2</span>
+      </div>
+      <div class="row">
+        <span class="label">Clearance</span>
+        <span class="val" id="info-clearance">0.05 mm</span>
+      </div>
+      <div class="row">
+        <span class="label">Comp. Ratio</span>
+        <span class="val" id="info-comp">11.3:1</span>
+      </div>
+      <div class="row">
+        <span class="label">Piston Speed</span>
+        <span class="val" id="info-piston-speed">— m/s</span>
+      </div>
+    </div>
+
+    <div class="conflicts" id="conflicts-panel">
+      <h3>⚠ Compatibility Issues</h3>
+      <div id="conflicts-list"></div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div class="footer">
+    <span>CBR150 Engine Simulator — Proof of Concept</span>
+    <span>Physics: real-time parametric</span>
+    <span class="fps" id="fps">60 fps</span>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// Engine Parameters & Physics
+// ============================================================
+
+const STOCK = {
+  bore: 63.5,
+  stroke: 47.2,
+  pistonDia: 63.45,
+  pistonHeight: 30.0,
+  pinDia: 15.0,
+  compRatio: 11.3,
+  chamberVol: 8.2,
+  intakeValveDia: 23.0,
+  exhaustValveDia: 20.0,
+  conRodLength: 100.0, // mm
+};
+
+let engine = { ...STOCK };
+let conflicts = [];
+
+function calculateDerived() {
+  conflicts = [];
+
+  // Bore area
+  const boreRadius = engine.bore / 2;
+  const boreArea = Math.PI * boreRadius * boreRadius; // mm²
+
+  // Displacement
+  const displacement = boreArea * engine.stroke / 1000; // cc
+  const totalDisplacement = displacement; // single cylinder
+
+  // Clearance (bore - piston diameter)
+  const clearance = engine.bore - engine.pistonDia;
+
+  // Clearance check
+  if (clearance < 0.02) {
+    conflicts.push({
+      type: 'critical',
+      parts: ['bore', 'piston-dia'],
+      message: `Clearance ${clearance.toFixed(3)}mm — piston will seize! Minimum 0.02mm required.`
+    });
+  } else if (clearance < 0.04) {
+    conflicts.push({
+      type: 'warning',
+      parts: ['bore', 'piston-dia'],
+      message: `Clearance ${clearance.toFixed(3)}mm — very tight. Recommended minimum 0.04mm.`
+    });
+  } else if (clearance > 0.12) {
+    conflicts.push({
+      type: 'warning',
+      parts: ['bore', 'piston-dia'],
+      message: `Clearance ${clearance.toFixed(3)}mm — too loose. Recommended maximum 0.12mm.`
+    });
+  }
+
+  // Piston must be smaller than bore
+  if (engine.pistonDia >= engine.bore) {
+    conflicts.push({
+      type: 'critical',
+      parts: ['bore', 'piston-dia'],
+      message: `Piston diameter (${engine.pistonDia.toFixed(2)}mm) ≥ bore (${engine.bore.toFixed(2)}mm)!`
+    });
+  }
+
+  // Compression ratio verification
+  const sweptVol = boreArea * engine.stroke / 1000; // cc
+  const actualCompRatio = (sweptVol + engine.chamberVol) / engine.chamberVol;
+  const compDiff = Math.abs(actualCompRatio - engine.compRatio);
+
+  if (compDiff > 0.5) {
+    conflicts.push({
+      type: 'warning',
+      parts: ['comp-ratio', 'chamber-vol'],
+      message: `Comp ratio mismatch: set ${engine.compRatio}:1 but calculated ${actualCompRatio.toFixed(1)}:1 from chamber volume.`
+    });
+  }
+
+  // Valve to bore ratio
+  const intakeRatio = engine.intakeValveDia / engine.bore;
+  if (intakeRatio > 0.42) {
+    conflicts.push({
+      type: 'warning',
+      parts: ['intake-dia', 'bore'],
+      message: `Intake valve ${engine.intakeValveDia}mm is ${intakeRatio.toFixed(1)}% of bore — may not fit in chamber.`
+    });
+  }
+
+  // Piston speed at 10000 RPM
+  const pistonSpeed = 2 * engine.stroke * 10000 / 60 / 1000; // m/s
+  if (pistonSpeed > 25) {
+    conflicts.push({
+      type: 'warning',
+      parts: ['stroke'],
+      message: `Piston speed ${pistonSpeed.toFixed(1)} m/s at 10000 RPM — high wear risk.`
+    });
+  }
+
+  return {
+    displacement: totalDisplacement,
+    clearance,
+    actualCompRatio,
+    pistonSpeed,
+    boreArea,
+  };
+}
+
+// ============================================================
+// 3D Rendering (Canvas 2D cross-section for POC)
+// ============================================================
+
+const canvas = document.getElementById('canvas3d');
+const ctx = canvas.getContext('2d');
+let frameCount = 0;
+let lastTime = performance.now();
+
+function resizeCanvas() {
+  const rect = canvas.parentElement.getBoundingClientRect();
+  canvas.width = rect.width * window.devicePixelRatio;
+  canvas.height = rect.height * window.devicePixelRatio;
+  canvas.style.width = rect.width + 'px';
+  canvas.style.height = rect.height + 'px';
+  ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+}
+
+function drawEngine() {
+  const w = canvas.width / window.devicePixelRatio;
+  const h = canvas.height / window.devicePixelRatio;
+  const cx = w / 2;
+  const cy = h / 2;
+
+  ctx.clearRect(0, 0, w, h);
+
+  // Scale: 1mm = 3px
+  const scale = 3;
+  const boreR = engine.bore / 2 * scale;
+  const pistonR = engine.pistonDia / 2 * scale;
+  const strokePx = engine.stroke * scale;
+
+  // Bore colors based on clearance
+  const clearance = engine.bore - engine.pistonDia;
+  let boreColor, pistonColor;
+  if (clearance < 0.02) {
+    boreColor = '#ff2222';
+    pistonColor = '#ff6666';
+  } else if (clearance < 0.04) {
+    boreColor = '#ffaa00';
+    pistonColor = '#ffcc44';
+  } else if (clearance > 0.12) {
+    boreColor = '#ffaa00';
+    pistonColor = '#ffcc44';
+  } else {
+    boreColor = '#4a90d9';
+    pistonColor = '#6ab0ff';
+  }
+
+  // Draw cylinder bore (outer wall)
+  ctx.strokeStyle = '#555';
+  ctx.lineWidth = 2;
+  ctx.fillStyle = '#1a1a1a';
+
+  // Cylinder walls
+  const wallThickness = 8;
+  const cylinderTop = cy - strokePx * 0.8;
+  const cylinderBottom = cy + strokePx * 0.6;
+
+  // Left wall
+  ctx.fillStyle = '#2a2a2a';
+  ctx.fillRect(cx - boreR - wallThickness, cylinderTop, wallThickness, cylinderBottom - cylinderTop);
+  ctx.strokeStyle = boreColor;
+  ctx.strokeRect(cx - boreR - wallThickness, cylinderTop, wallThickness, cylinderBottom - cylinderTop);
+
+  // Right wall
+  ctx.fillStyle = '#2a2a2a';
+  ctx.fillRect(cx + boreR, cylinderTop, wallThickness, cylinderBottom - cylinderTop);
+  ctx.strokeStyle = boreColor;
+  ctx.strokeRect(cx + boreR, cylinderTop, wallThickness, cylinderBottom - cylinderTop);
+
+  // Bore surface (inner)
+  ctx.strokeStyle = boreColor;
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(cx - boreR, cylinderTop);
+  ctx.lineTo(cx - boreR, cylinderBottom);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(cx + boreR, cylinderTop);
+  ctx.lineTo(cx + boreR, cylinderBottom);
+  ctx.stroke();
+
+  // Cylinder head (top)
+  ctx.fillStyle = '#333';
+  ctx.fillRect(cx - boreR - wallThickness, cylinderTop - 20, boreR * 2 + wallThickness * 2, 20);
+  ctx.strokeStyle = boreColor;
+  ctx.lineWidth = 2;
+  ctx.strokeRect(cx - boreR - wallThickness, cylinderTop - 20, boreR * 2 + wallThickness * 2, 20);
+
+  // Combustion chamber (in head)
+  ctx.fillStyle = '#1a0a0a';
+  ctx.beginPath();
+  ctx.arc(cx, cylinderTop, boreR * 0.6, 0, Math.PI, false);
+  ctx.fill();
+  ctx.strokeStyle = '#ff4444';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  // Valves in head
+  const intakeR = engine.intakeValveDia / 2 * scale * 0.4;
+  const exhaustR = engine.exhaustValveDia / 2 * scale * 0.4;
+
+  // Intake valve (left)
+  ctx.fillStyle = '#2244aa';
+  ctx.beginPath();
+  ctx.arc(cx - boreR * 0.35, cylinderTop - 10, intakeR, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#4488ff';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Exhaust valve (right)
+  ctx.fillStyle = '#aa2222';
+  ctx.beginPath();
+  ctx.arc(cx + boreR * 0.35, cylinderTop - 10, exhaustR, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#ff4444';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Piston (animated up/down)
+  const time = performance.now() / 1000;
+  const pistonOffset = Math.sin(time * 2) * strokePx * 0.4;
+  const pistonTop = cy - strokePx * 0.3 + pistonOffset;
+  const pistonHeight = engine.pistonHeight * scale;
+
+  // Piston body
+  ctx.fillStyle = pistonColor;
+  ctx.globalAlpha = 0.9;
+  ctx.fillRect(cx - pistonR, pistonTop, pistonR * 2, pistonHeight);
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = pistonColor;
+  ctx.lineWidth = 2;
+  ctx.strokeRect(cx - pistonR, pistonTop, pistonR * 2, pistonHeight);
+
+  // Piston rings (3 grooves)
+  ctx.strokeStyle = '#888';
+  ctx.lineWidth = 1;
+  for (let i = 0; i < 3; i++) {
+    const ringY = pistonTop + 5 + i * 6;
+    ctx.beginPath();
+    ctx.moveTo(cx - pistonR + 1, ringY);
+    ctx.lineTo(cx + pistonR - 1, ringY);
+    ctx.stroke();
+  }
+
+  // Piston pin
+  ctx.fillStyle = '#aaa';
+  ctx.beginPath();
+  ctx.arc(cx, pistonTop + pistonHeight * 0.6, engine.pinDia / 2 * scale * 0.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#ccc';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  // Connecting rod
+  const pinY = pistonTop + pistonHeight * 0.6;
+  const crankY = cy + strokePx * 0.5;
+  const crankR = engine.stroke / 2 * scale * 0.8;
+  const crankX = cx + Math.cos(time * 2) * crankR;
+  const crankPinY = crankY + Math.sin(time * 2) * crankR * 0.3;
+
+  ctx.strokeStyle = '#888';
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.moveTo(cx, pinY);
+  ctx.lineTo(crankX, crankPinY);
+  ctx.stroke();
+
+  // Crankshaft
+  ctx.fillStyle = '#666';
+  ctx.beginPath();
+  ctx.arc(crankX, crankPinY, 8, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#888';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Crank center
+  ctx.fillStyle = '#444';
+  ctx.beginPath();
+  ctx.arc(cx, crankY, 12, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#666';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Clearance indicator (gap between piston and bore wall)
+  if (clearance >= 0.02) {
+    const gapPx = clearance * scale * 0.5;
+    ctx.fillStyle = clearance < 0.04 ? 'rgba(255,170,0,0.3)' : 'rgba(74,144,217,0.3)';
+    ctx.fillRect(cx - boreR, pistonTop, gapPx, pistonHeight);
+    ctx.fillRect(cx + pistonR, pistonTop, gapPx, pistonHeight);
+  }
+
+  // Labels
+  ctx.font = '11px SF Mono, Fira Code, monospace';
+  ctx.fillStyle = '#666';
+  ctx.textAlign = 'center';
+
+  // Bore label
+  ctx.fillText(`bore ${engine.bore}mm`, cx, cylinderTop - 30);
+
+  // Piston label
+  ctx.fillStyle = pistonColor;
+  ctx.fillText(`piston ${engine.pistonDia}mm`, cx, pistonTop - 5);
+
+  // Clearance label
+  ctx.fillStyle = clearance < 0.02 ? '#ff2222' : clearance < 0.04 ? '#ffaa00' : '#4ade80';
+  ctx.fillText(`clearance: ${clearance.toFixed(3)}mm`, cx, cylinderBottom + 20);
+
+  // Frame counter
+  frameCount++;
+}
+
+// ============================================================
+// UI Update
+// ============================================================
+
+function updateUI() {
+  const derived = calculateDerived();
+
+  // Update value displays
+  document.getElementById('bore-val').textContent = engine.bore.toFixed(1);
+  document.getElementById('stroke-val').textContent = engine.stroke.toFixed(1);
+  document.getElementById('piston-dia-val').textContent = engine.pistonDia.toFixed(2);
+  document.getElementById('piston-height-val').textContent = engine.pistonHeight.toFixed(1);
+  document.getElementById('pin-dia-val').textContent = engine.pinDia.toFixed(1);
+  document.getElementById('comp-ratio-val').textContent = engine.compRatio.toFixed(1);
+  document.getElementById('chamber-vol-val').textContent = engine.chamberVol.toFixed(1);
+  document.getElementById('intake-dia-val').textContent = engine.intakeValveDia.toFixed(1);
+  document.getElementById('exhaust-dia-val').textContent = engine.exhaustValveDia.toFixed(1);
+
+  // Update info panel
+  document.getElementById('info-displacement').textContent = derived.displacement.toFixed(1) + ' cc';
+  document.getElementById('info-bore-stroke').textContent = `${engine.bore.toFixed(1)} × ${engine.stroke.toFixed(1)}`;
+  document.getElementById('info-clearance').textContent = derived.clearance.toFixed(3) + ' mm';
+  document.getElementById('info-comp').textContent = derived.actualCompRatio.toFixed(1) + ':1';
+  document.getElementById('info-piston-speed').textContent = derived.pistonSpeed.toFixed(1) + ' m/s';
+
+  // Clearance color
+  const clearanceEl = document.getElementById('info-clearance');
+  clearanceEl.className = 'val';
+  if (derived.clearance < 0.02) clearanceEl.classList.add('error');
+  else if (derived.clearance < 0.04) clearanceEl.classList.add('warning');
+
+  // Conflicts
+  const conflictsPanel = document.getElementById('conflicts-panel');
+  const conflictsList = document.getElementById('conflicts-list');
+  const statusEl = document.getElementById('status');
+
+  if (conflicts.length > 0) {
+    conflictsPanel.classList.add('active');
+    conflictsList.innerHTML = conflicts.map(c =>
+      `<div class="conflict-item">${c.message}</div>`
+    ).join('');
+
+    const hasCritical = conflicts.some(c => c.type === 'critical');
+    statusEl.textContent = hasCritical ? '● Critical' : '● Warning';
+    statusEl.className = 'status ' + (hasCritical ? 'error' : 'warning');
+
+    // Highlight conflicting param groups
+    document.querySelectorAll('.param-group').forEach(g => g.classList.remove('conflict'));
+    document.querySelectorAll('.param').forEach(p => p.classList.remove('conflict'));
+
+    conflicts.forEach(c => {
+      c.parts.forEach(partId => {
+        const param = document.getElementById('param-' + partId);
+        if (param) param.classList.add('conflict');
+        const group = param?.closest('.param-group');
+        if (group) group.classList.add('conflict');
+      });
+    });
+  } else {
+    conflictsPanel.classList.remove('active');
+    conflictsList.innerHTML = '';
+    statusEl.textContent = '● Ready';
+    statusEl.className = 'status';
+    document.querySelectorAll('.param-group').forEach(g => g.classList.remove('conflict'));
+    document.querySelectorAll('.param').forEach(p => p.classList.remove('conflict'));
+  }
+}
+
+// ============================================================
+// Event Handlers
+// ============================================================
+
+const sliders = {
+  'bore': { key: 'bore', update: v => engine.bore = v },
+  'stroke': { key: 'stroke', update: v => engine.stroke = v },
+  'piston-dia': { key: 'pistonDia', update: v => engine.pistonDia = v },
+  'piston-height': { key: 'pistonHeight', update: v => engine.pistonHeight = v },
+  'pin-dia': { key: 'pinDia', update: v => engine.pinDia = v },
+  'comp-ratio': { key: 'compRatio', update: v => engine.compRatio = v },
+  'chamber-vol': { key: 'chamberVol', update: v => engine.chamberVol = v },
+  'intake-dia': { key: 'intakeValveDia', update: v => engine.intakeValveDia = v },
+  'exhaust-dia': { key: 'exhaustValveDia', update: v => engine.exhaustValveDia = v },
+};
+
+Object.entries(sliders).forEach(([id, config]) => {
+  const el = document.getElementById(id);
+  if (el) {
+    el.addEventListener('input', () => {
+      config.update(parseFloat(el.value));
+      updateUI();
+    });
+  }
+});
+
+// Presets
+function loadPreset(name) {
+  document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+
+  switch (name) {
+    case 'stock':
+      Object.assign(engine, { ...STOCK });
+      break;
+    case 'bore-up':
+      Object.assign(engine, { ...STOCK, bore: 65.5, pistonDia: 65.45, compRatio: 11.0 });
+      break;
+    case 'high-comp':
+      Object.assign(engine, { ...STOCK, compRatio: 13.0, chamberVol: 6.5 });
+      break;
+    case 'overbore':
+      Object.assign(engine, { ...STOCK, bore: 67.0, pistonDia: 66.95, compRatio: 10.5, chamberVol: 9.5 });
+      break;
+  }
+
+  // Update slider positions
+  document.getElementById('bore').value = engine.bore;
+  document.getElementById('stroke').value = engine.stroke;
+  document.getElementById('piston-dia').value = engine.pistonDia;
+  document.getElementById('piston-height').value = engine.pistonHeight;
+  document.getElementById('pin-dia').value = engine.pinDia;
+  document.getElementById('comp-ratio').value = engine.compRatio;
+  document.getElementById('chamber-vol').value = engine.chamberVol;
+  document.getElementById('intake-dia').value = engine.intakeValveDia;
+  document.getElementById('exhaust-dia').value = engine.exhaustValveDia;
+
+  updateUI();
+}
+
+// ============================================================
+// Animation Loop
+// ============================================================
+
+function animate() {
+  drawEngine();
+
+  // FPS counter
+  const now = performance.now();
+  if (now - lastTime > 1000) {
+    document.getElementById('fps').textContent = frameCount + ' fps';
+    frameCount = 0;
+    lastTime = now;
+  }
+
+  requestAnimationFrame(animate);
+}
+
+// Init
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+updateUI();
+animate();
+</script>
+</body>
+</html>
