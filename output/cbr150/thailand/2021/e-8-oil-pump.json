@@ -1,0 +1,89 @@
+{
+  "schema_version": "0.1",
+  "dataset_id": "DATASET-HONDA-CBR150-TH-2021-E-8",
+  "status": "working",
+  "source_id": "SRC-HONDA-THA-BIKE-PARTS-CBR150-2021-2026",
+  "observed_at": "2026-09-14",
+  "applicability": {
+    "manufacturer": "Honda",
+    "model": "CBR150R",
+    "market": "thailand",
+    "year": 2021,
+    "serial_range": null,
+    "area_code": null
+  },
+  "catalog_locator": {
+    "block": "E-8 OIL PUMP",
+    "page": null
+  },
+  "price_policy": "THB inclusive of 7% VAT",
+  "items": [
+    {
+      "reference_number": "1",
+      "part_number": "15021-436-000",
+      "description": "ชุดโรเตอร์ปั๊มน้ำมันเครื่อง",
+      "quantity": 1,
+      "status": "candidate",
+      "notes": "Extracted from honda.bike-parts.co.th for CBR150R thailand 2021. Price: 691,22 ฿. Physical dimensions and material remain unknown."
+    },
+    {
+      "reference_number": "2",
+      "part_number": "15100-KPP-T00",
+      "description": "ปั๊มน้ำมันเครื่องทั้งชุด",
+      "quantity": 1,
+      "status": "candidate",
+      "notes": "Extracted from honda.bike-parts.co.th for CBR150R thailand 2021. Price: 466,52 ฿. Physical dimensions and material remain unknown."
+    },
+    {
+      "reference_number": "3",
+      "part_number": "15133-KPP-T00",
+      "description": "เฟืองขับปั๊มน้ำมันเครื่อง (25 ฟัน)",
+      "quantity": 1,
+      "status": "candidate",
+      "notes": "Extracted from honda.bike-parts.co.th for CBR150R thailand 2021. Price: 107,00 ฿. Physical dimensions and material remain unknown."
+    },
+    {
+      "reference_number": "4",
+      "part_number": "90702-KFM-900",
+      "description": "ปลอกสลัก,  8X12",
+      "quantity": 1,
+      "status": "candidate",
+      "notes": "Extracted from honda.bike-parts.co.th for CBR150R thailand 2021. Price: 10,70 ฿. Physical dimensions and material remain unknown."
+    },
+    {
+      "reference_number": "5",
+      "part_number": "93301-050120J",
+      "description": "โบลต์หกเหลี่ยม,  5X12",
+      "quantity": 1,
+      "status": "candidate",
+      "notes": "Extracted from honda.bike-parts.co.th for CBR150R thailand 2021. Price: 8,56 ฿. Physical dimensions and material remain unknown."
+    },
+    {
+      "reference_number": "6",
+      "part_number": "94540-06018",
+      "description": "คลิปล็อก,  6 มม.",
+      "quantity": 1,
+      "status": "candidate",
+      "notes": "Extracted from honda.bike-parts.co.th for CBR150R thailand 2021. Price: 8,56 ฿. Physical dimensions and material remain unknown."
+    },
+    {
+      "reference_number": "7",
+      "part_number": "95701-0603500",
+      "description": "โบลต์หน้าแปลน,  6X35",
+      "quantity": 1,
+      "status": "candidate",
+      "notes": "Extracted from honda.bike-parts.co.th for CBR150R thailand 2021. Price: 16,05 ฿. Physical dimensions and material remain unknown."
+    },
+    {
+      "reference_number": "8",
+      "part_number": "96220-40238",
+      "description": "ROLLER,  4X23.8",
+      "quantity": 1,
+      "status": "candidate",
+      "notes": "Extracted from honda.bike-parts.co.th for CBR150R thailand 2021. Price: 0,00 ฿. Physical dimensions and material remain unknown."
+    }
+  ],
+  "parameter_series": [],
+  "unresolved_references": [],
+  "notes": "Automated extraction from honda.bike-parts.co.th. Model code: CBR150RK. Block: E-8 OIL PUMP."
+}

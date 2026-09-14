@@ -1,0 +1,73 @@
+{
+  "schema_version": "0.1",
+  "dataset_id": "DATASET-HONDA-CBR150-TH-2021-E-7",
+  "status": "working",
+  "source_id": "SRC-HONDA-THA-BIKE-PARTS-CBR150-2021-2026",
+  "observed_at": "2026-09-14",
+  "applicability": {
+    "manufacturer": "Honda",
+    "model": "CBR150R",
+    "market": "thailand",
+    "year": 2021,
+    "serial_range": null,
+    "area_code": null
+  },
+  "catalog_locator": {
+    "block": "E-7 ALTERNATOR",
+    "page": null
+  },
+  "price_policy": "THB inclusive of 7% VAT",
+  "items": [
+    {
+      "reference_number": "1",
+      "part_number": "31110-K56-N01",
+      "description": "ล้อแม่เหล็ก (MITSUBA)",
+      "quantity": 1,
+      "status": "candidate",
+      "notes": "Extracted from honda.bike-parts.co.th for CBR150R thailand 2021. Price: 1 936,70 ฿. Physical dimensions and material remain unknown."
+    },
+    {
+      "reference_number": "2",
+      "part_number": "31120-K45-N41",
+      "description": "ชุดขดลวดสเตเตอร์ (MITSUBA)",
+      "quantity": 1,
+      "status": "candidate",
+      "notes": "Extracted from honda.bike-parts.co.th for CBR150R thailand 2021. Price: 2 149,63 ฿. Physical dimensions and material remain unknown."
+    },
+    {
+      "reference_number": "3",
+      "part_number": "90439-KWZ-900",
+      "description": "แหวนรอง,  12X24X2.3",
+      "quantity": 1,
+      "status": "candidate",
+      "notes": "Extracted from honda.bike-parts.co.th for CBR150R thailand 2021. Price: 22,47 ฿. Physical dimensions and material remain unknown."
+    },
+    {
+      "reference_number": "4",
+      "part_number": "94050-12000",
+      "description": "น็อตหน้าแปลน,  12 มม.",
+      "quantity": 1,
+      "status": "candidate",
+      "notes": "Extracted from honda.bike-parts.co.th for CBR150R thailand 2021. Price: 26,75 ฿. Physical dimensions and material remain unknown."
+    },
+    {
+      "reference_number": "5",
+      "part_number": "96001-0601600",
+      "description": "โบลต์หน้าแปลน,  6X16",
+      "quantity": 1,
+      "status": "candidate",
+      "notes": "Extracted from honda.bike-parts.co.th for CBR150R thailand 2021. Price: 22,47 ฿. Physical dimensions and material remain unknown."
+    },
+    {
+      "reference_number": "6",
+      "part_number": "96001-0602500",
+      "description": "โบลต์หน้าแปลน,  6X25",
+      "quantity": 1,
+      "status": "candidate",
+      "notes": "Extracted from honda.bike-parts.co.th for CBR150R thailand 2021. Price: 33,17 ฿. Physical dimensions and material remain unknown."
+    }
+  ],
+  "parameter_series": [],
+  "unresolved_references": [],
+  "notes": "Automated extraction from honda.bike-parts.co.th. Model code: CBR150RK. Block: E-7 ALTERNATOR."
+}

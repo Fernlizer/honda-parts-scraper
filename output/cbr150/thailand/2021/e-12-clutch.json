@@ -1,0 +1,177 @@
+{
+  "schema_version": "0.1",
+  "dataset_id": "DATASET-HONDA-CBR150-TH-2021-E-12",
+  "status": "working",
+  "source_id": "SRC-HONDA-THA-BIKE-PARTS-CBR150-2021-2026",
+  "observed_at": "2026-09-14",
+  "applicability": {
+    "manufacturer": "Honda",
+    "model": "CBR150R",
+    "market": "thailand",
+    "year": 2021,
+    "serial_range": null,
+    "area_code": null
+  },
+  "catalog_locator": {
+    "block": "E-12 CLUTCH",
+    "page": null
+  },
+  "price_policy": "THB inclusive of 7% VAT",
+  "items": [
+    {
+      "reference_number": "1",
+      "part_number": "22100-K56-N01",
+      "description": "เรือนคลัทช์ตัวนอก",
+      "quantity": 1,
+      "status": "candidate",
+      "notes": "Extracted from honda.bike-parts.co.th for CBR150R thailand 2021. Price: 3 273,13 ฿. Physical dimensions and material remain unknown."
+    },
+    {
+      "reference_number": "2",
+      "part_number": "22100-K56-N11",
+      "description": "เรือนคลัทช์ตัวนอก (75 ฟัน)",
+      "quantity": 1,
+      "status": "candidate",
+      "notes": "Extracted from honda.bike-parts.co.th for CBR150R thailand 2021. Price: 3 361,94 ฿. Physical dimensions and material remain unknown."
+    },
+    {
+      "reference_number": "3",
+      "part_number": "22105-K56-N00",
+      "description": "ปลอกนำเรือนคลัตช์ตัวนอก",
+      "quantity": 1,
+      "status": "candidate",
+      "notes": "Extracted from honda.bike-parts.co.th for CBR150R thailand 2021. Price: 318,86 ฿. Physical dimensions and material remain unknown."
+    },
+    {
+      "reference_number": "4",
+      "part_number": "22121-K56-N02",
+      "description": "เรือนคลัทช์ตัวกลาง",
+      "quantity": 1,
+      "status": "candidate",
+      "notes": "Extracted from honda.bike-parts.co.th for CBR150R thailand 2021. Price: 331,70 ฿. Physical dimensions and material remain unknown."
+    },
+    {
+      "reference_number": "5",
+      "part_number": "22201-K56-N01",
+      "description": "แผ่นผ้าคลัทช์",
+      "quantity": 1,
+      "status": "candidate",
+      "notes": "Extracted from honda.bike-parts.co.th for CBR150R thailand 2021. Price: 220,42 ฿. Physical dimensions and material remain unknown."
+    },
+    {
+      "reference_number": "6",
+      "part_number": "22321-KWW-742",
+      "description": "แผ่นเหล็กคลัตช์",
+      "quantity": 1,
+      "status": "candidate",
+      "notes": "Extracted from honda.bike-parts.co.th for CBR150R thailand 2021. Price: 29,96 ฿. Physical dimensions and material remain unknown."
+    },
+    {
+      "reference_number": "7",
+      "part_number": "22350-K56-N02",
+      "description": "คลัตซ์",
+      "quantity": 1,
+      "status": "candidate",
+      "notes": "Extracted from honda.bike-parts.co.th for CBR150R thailand 2021. Price: 269,64 ฿. Physical dimensions and material remain unknown."
+    },
+    {
+      "reference_number": "8",
+      "part_number": "22361-K56-N01",
+      "description": "แผ่นยกคลัทช์",
+      "quantity": 1,
+      "status": "candidate",
+      "notes": "Extracted from honda.bike-parts.co.th for CBR150R thailand 2021. Price: 110,21 ฿. Physical dimensions and material remain unknown."
+    },
+    {
+      "reference_number": "9",
+      "part_number": "22401-K56-N01",
+      "description": "สปริงคลัทช์",
+      "quantity": 1,
+      "status": "candidate",
+      "notes": "Extracted from honda.bike-parts.co.th for CBR150R thailand 2021. Price: 37,45 ฿. Physical dimensions and material remain unknown."
+    },
+    {
+      "reference_number": "10",
+      "part_number": "22849-K15-900",
+      "description": "ตัวยกคลัตช์",
+      "quantity": 1,
+      "status": "candidate",
+      "notes": "Extracted from honda.bike-parts.co.th for CBR150R thailand 2021. Price: 24,61 ฿. Physical dimensions and material remain unknown."
+    },
+    {
+      "reference_number": "11",
+      "part_number": "23121-K56-N00",
+      "description": "เฟืองขับขั้นต้น A (23 ฟัน)(สีขาว)",
+      "quantity": 1,
+      "status": "candidate",
+      "notes": "Extracted from honda.bike-parts.co.th for CBR150R thailand 2021. Price: 415,16 ฿. Physical dimensions and material remain unknown."
+    },
+    {
+      "reference_number": "12",
+      "part_number": "23122-K56-N00",
+      "description": "เฟืองขับขั้นต้น B 23 ฟัน สีน้ำเงิน",
+      "quantity": 1,
+      "status": "candidate",
+      "notes": "Extracted from honda.bike-parts.co.th for CBR150R thailand 2021. Price: 415,16 ฿. Physical dimensions and material remain unknown."
+    },
+    {
+      "reference_number": "13",
+      "part_number": "23123-K56-N00",
+      "description": "เฟืองขับขั้นต้น C 23 ฟัน สีเหลือง",
+      "quantity": 1,
+      "status": "candidate",
+      "notes": "Extracted from honda.bike-parts.co.th for CBR150R thailand 2021. Price: 415,16 ฿. Physical dimensions and material remain unknown."
+    },
+    {
+      "reference_number": "14",
+      "part_number": "90008-KT7-000",
+      "description": "โบ้ลท์หน้าแปลน,  6X25",
+      "quantity": 1,
+      "status": "candidate",
+      "notes": "Extracted from honda.bike-parts.co.th for CBR150R thailand 2021. Price: 67,41 ฿. Physical dimensions and material remain unknown."
+    },
+    {
+      "reference_number": "15",
+      "part_number": "90202-KRM-840",
+      "description": "น็อตหน้าแปลนพิเศษ,  14 มม.",
+      "quantity": 1,
+      "status": "candidate",
+      "notes": "Extracted from honda.bike-parts.co.th for CBR150R thailand 2021. Price: 16,05 ฿. Physical dimensions and material remain unknown."
+    },
+    {
+      "reference_number": "16",
+      "part_number": "90401-KY4-901",
+      "description": "แหวนรอง,  17 มม.",
+      "quantity": 1,
+      "status": "candidate",
+      "notes": "Extracted from honda.bike-parts.co.th for CBR150R thailand 2021. Price: 69,55 ฿. Physical dimensions and material remain unknown."
+    },
+    {
+      "reference_number": "17",
+      "part_number": "90434-K56-N00",
+      "description": "แหวนรอง,  20 มม.",
+      "quantity": 1,
+      "status": "candidate",
+      "notes": "Extracted from honda.bike-parts.co.th for CBR150R thailand 2021. Price: 167,99 ฿. Physical dimensions and material remain unknown."
+    },
+    {
+      "reference_number": "18",
+      "part_number": "90462-KWW-740",
+      "description": "แหวนรอง,  14.1 มม.",
+      "quantity": 1,
+      "status": "candidate",
+      "notes": "Extracted from honda.bike-parts.co.th for CBR150R thailand 2021. Price: 14,98 ฿. Physical dimensions and material remain unknown."
+    },
+    {
+      "reference_number": "19",
+      "part_number": "91007-KE1-003",
+      "description": "ลูกปืนตลับ,  6903",
+      "quantity": 1,
+      "status": "candidate",
+      "notes": "Extracted from honda.bike-parts.co.th for CBR150R thailand 2021. Price: 340,26 ฿. Physical dimensions and material remain unknown."
+    }
+  ],
+  "parameter_series": [],
+  "unresolved_references": [],
+  "notes": "Automated extraction from honda.bike-parts.co.th. Model code: CBR150RK. Block: E-12 CLUTCH."
+}
