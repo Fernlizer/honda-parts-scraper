@@ -73,6 +73,17 @@ python cbr150_extractor.py --year 2021 --model-code CBR150RK \
 python cbr150_extractor.py --year 2021 --wait-on-captcha
 ```
 
+### 3. Thai Honda PEC Extractor (primary-source candidate)
+
+ดึงทีละ block เพื่อจำกัดจำนวน request และเก็บ SHA-256 ของ response สำหรับทุก reference:
+
+```bash
+python pec_extractor.py --year 2021 --block E-4 \
+  --output e-4-pec-candidate.json --delay 1
+```
+
+PEC ใช้หมายเลข block ของตัวเอง ห้ามสมมติว่าเลข E-block ตรงกับ reseller catalog หลังจาก E-6 เป็นต้นไป Output ยังเป็น `status: candidate` แม้แหล่ง PEC จะเป็น evidence level A และต้อง human review ก่อน normalize เป็น verified records
+
 ## Output Format
 
 ### honda_parts_scraper.py
